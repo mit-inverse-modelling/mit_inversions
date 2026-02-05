@@ -1,0 +1,10 @@
+LICENSE
+README.md
+pyproject.toml
+mit_inversions/__init__.py
+mit_inversions/config.py
+mit_inversions.egg-info/PKG-INFO
+mit_inversions.egg-info/SOURCES.txt
+mit_inversions.egg-info/dependency_links.txt
+mit_inversions.egg-info/top_level.txt
+mit_inversions/readers/__init__.py
