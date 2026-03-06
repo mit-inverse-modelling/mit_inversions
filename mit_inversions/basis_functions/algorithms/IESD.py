@@ -12,9 +12,9 @@ from skimage.filters import rank
 
 from sklearn.cluster import KMeans
 
-class IESD:
+class IWASP:
     """
-    Information-Equalized Spatial Discretiation (IESD) algorithm for
+    Information-Weighted Adaptive Spatial Discretiation (IWASP) algorithm for
     creating basis function regions of footprint-flux fields. 
 
     Each region represents one unit of information content in
@@ -29,6 +29,8 @@ class IESD:
     4. Regions with high variability are split using K-means clustering to create more homogeneous regions.
     5. The process is repeated until a target number of regions is reached or the variability threshold is met.
     
+    use the .run() method to use the algorithm
+
     """
     
     def __init__(self, 
@@ -45,19 +47,19 @@ class IESD:
         its error, and parameters for segmentation.
 
         Parameters:
-        - fp_flux_grid: 
+        - fp_flux_grid (np.ndarray): 
             2D array of footprint-flux values.
-        - fp_flux_grid_error: 
+        - fp_flux_grid_error (np.ndarray): 
             2D array of errors associated with the footprint-flux values.
-        - target_regions: 
+        - target_regions (int): 
             Desired number of regions to segment into.
-        - max_iter: 
+        - max_iter (int): 
             Maximum number of iterations for the adaptive partitioning.
-        - var_threshold: 
+        - var_threshold (int): 
             Variability threshold for splitting regions (if None, it will be set adaptively based on the distribution of variability).
-        - alpha: 
+        - alpha (float): 
             Weighting factor for the error in the composite field calculation.
-        - smooth_sigma: 
+        - smooth_sigma (float): 
             Sigma for Gaussian smoothing of the composite field before seed detection.
         """
         self.fp_flux_grid = fp_flux_grid
@@ -81,12 +83,23 @@ class IESD:
 
         # Smooth the composite field
         G_smooth = gaussian_filter(G, sigma=self.smooth_sigma)
-        
         return G_smooth
 
     def detect_seeds(self, G, min_distance=2, threshold_rel=0.02):
         """
-        Detect seed points for watershed segmentation using local maxima in the composite field.
+        Detect seed points for watershed segmentation using local maxima 
+        in the composite field.
+
+        Parameters:
+        - G (np.ndarray):
+            2D array composite field calculated from the footprint-flux field
+        - min_distance (int):
+            Specified minimum distance (in pixels) between neighbouring peaks.
+            Any peak that has a taller neighbour within the distance is
+            suppressed. 
+        - threshold_rel (float):
+            Value to filter peaks based on their relative intensity values
+            ignoring peaks below a certain height.
         """
         coordinates = peak_local_max(G, 
                                      min_distance=min_distance, 
@@ -101,7 +114,14 @@ class IESD:
 
     def initial_segmentation(self, G, markers):
         """
-        Perform initial watershed segmentation using the detected seed points.
+        Perform initial watershed segmentation using the detected 
+        seed points.
+        
+        Parameters:
+        - G (np.ndarray):
+            2D array composite field calculated from the footprint-flux field
+        - markers (np.ndarray):
+            Array of values determined from peak_local_max
         """
         # Compute the distance transform of the composite field
         # We want to segment based on high values, so we take the negative
@@ -112,6 +132,20 @@ class IESD:
         """
         Calculate the variability of a region based on the 
         variance of G and the mean of G and H within the region.
+
+        Parameters:
+        - G (np.ndarray):
+            2D array composite field calculated from the footprint-flux field
+        - H (np.ndarray):
+            2D array footprint-flux error field 
+        - labels ():
+
+        - region_id ():
+
+        - lam1 (float=0.3):
+            Relative weighting of the mean of the masked composite field values
+        - lam2 (float=0.5):
+            Relative weighting of the mean of the masked uncertainty values
         """
         mask = labels == region_id
         
@@ -120,10 +154,13 @@ class IESD:
         if len(Gv)<5:
             return 0.0
     
-        V = (np.var(Gv) + lam1 * np.mean(Gv) + lam2*np.mean(Hv))
+        V = (np.var(Gv) + lam1 * np.mean(Gv) + lam2 * np.mean(Hv))
         return V
 
     def split_region(self, G, H, labels, region_id, n_splits=2):
+        """
+        Initiate K-means clustering algorithm for partioning composite field
+        """
         mask = labels == region_id
 
         # Feature vectors 
@@ -172,12 +209,10 @@ class IESD:
 
         return labels
 
-
     def adaptive_partition_convergent(self, max_splits_per_iter=3, max_merges_per_iter=3, tol=2):
         """
         Adaptive partitioning with convergence check based on the number of regions.
         """
-        
         # Compute composite field
         G = self.compute_composite_field()
         
@@ -241,6 +276,6 @@ class IESD:
     
     def run(self):
         """
-        Run basis function algorithm 
+        Run the algorithm!
         """
         return self.adaptive_partition_convergent()

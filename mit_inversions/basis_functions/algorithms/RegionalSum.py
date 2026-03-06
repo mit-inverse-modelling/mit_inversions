@@ -6,11 +6,13 @@ import numpy as np
 class RegionalSum:
     """
     Regional sum algorithm for creating basis function regions
-    from footprint-flux fields. 
+    from footprint-flux fields.
+
+    Use the .run() method for calculating basis function regions.
     """
 
     def __init__(self,
-                 fpXflux_grid: np.ndarray,
+                 fp_flux_grid: np.ndarray,
                  target_regions: int=40,
                  max_iter: int=1000,
                  ):
@@ -26,14 +28,30 @@ class RegionalSum:
         - max_iter (int):
             Maximum number of iterations to run the algorithm
         """
-        self.fpXflux_grid = fpXflux_grid
+
+        self.fpXflux_grid = fp_flux_grid
         self.target_regions = target_regions
         self.max_iter = max_iter
+
 
     def bucket_value_split(self, grid, bucket, offset_x=0, offset_y=0, depth=0):
         """
         Binary geometric splitting with alternating X/Y directions.
         Split is always by midpoint of geometry, not values.
+
+        Parameters
+        - grid (np.ndarray):
+            2D array for partitioning
+        - bucket (float):
+            Pre-calculated value for optimizing the number of
+            basis function partitions to the target regions
+        - offset_x (int):
+            Value to offset the grid in the X-direction
+        - offset_y (int):
+            Value to offset the grid in the Y-direction
+        - depth (int):
+            Value used to determine geometric direction
+            for basis function split. 
         """
 
         # Stop condition
@@ -75,6 +93,13 @@ class RegionalSum:
     def get_nregions(self, bucket, grid):
         """
         Returns number of regions for bucket value
+
+        Parameters:
+        - bucket (float):
+            Pre-calculated value for optimizing the number of
+            basis function partitions to the target regions
+        - grid (np.ndarray):
+            2D array for partitioning           
         """
         regions = self.bucket_value_split(grid, bucket)
         return len(regions)
@@ -83,10 +108,22 @@ class RegionalSum:
         """
         Optimize bucket value to obtain nregion basis functions 
         with +/- tol
+
+        Parameters:
+        - bucket (float):
+            Pre-calculated value for optimizing the number of
+            basis function partitions to the target regions
+        - grid (np.ndarray):
+            2D array for partitioning
+        - tol (int):
+            Tolerance value for number of basis function regions
+            to compute
         """
         current_bucket = bucket
         current_tol = tol 
 
+        # Outer loop increases tol by +1 if convergence not achieved 
+        # in max_iter range
         for _ in range(10):
             for j in range(self.max_iter):
                 current_nregion = self.get_nregions(current_bucket, grid)
@@ -104,22 +141,30 @@ class RegionalSum:
                 # If too few regions -> bucket too large -> decrease bucket
                 else:
                     current_bucket *= 0.99
-                
             current_tol += 1
 
         raise BufferError(f"Failed to converge for all tolerances from {tol} to {current_tol}!")
 
     def run(self, tol=2):
         """
-        Run the algorithm
+        Run the algorithm!
+
+        Parameters:
+        - tol (int):
+            Initial tolerance level for number of basis 
+            function regions. 
         """
+        # Use mean value of the footprint-flux grid as starting bucket value
         starting_value = np.nanmean(self.fpXflux_grid)
         
+        # Optimize the bucket value for number of basis functions
         optimal_bucket = self.optimize_nregions(
             bucket=starting_value,
             grid=self.fpXflux_grid,
             tol=tol
         )
+        
+        # Calculate regions 
         regions = self.bucket_value_split(self.fpXflux_grid, optimal_bucket)
         
         # Convert region vertices to masked areas
@@ -127,7 +172,6 @@ class RegionalSum:
         for i in range(len(regions)):
             x_start, x_stop = regions[i][0], regions[i][1]
             y_start, y_stop = regions[i][2], regions[i][3]
-
         bf_grid[x_start:x_stop, y_start:y_stop] = i
 
         return optimal_bucket, bf_grid
