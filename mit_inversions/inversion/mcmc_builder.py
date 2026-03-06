@@ -162,52 +162,7 @@ def make_x_prior_scaling(n, x0=0.0, name="x_prior", scaling_prior = None ):
 
     return builder
 
-def make_x_prior_scaling_diff(n, x0=0.0, name="x_prior", scaling_prior = None ):
-    """build the sample of x with a scaling factor."""
-    
 
-    if scaling_prior is None:
-        scaling_prior = {"pdf":"lognormal","mu":1.0,"sigma":1.0}
-        
-    if not isinstance(scaling_prior, dict):
-        raise ValueError("scaling_prior must be a diction include key 'pdf'")    
-      
-    x0_arr = np.asarray(x0)
-
-    if x0_arr.ndim == 0:
-        x0_val = x0_arr          # scalar
-    else:
-        x0_arr = np.squeeze(x0_arr)
-        if x0_arr.ndim != 1 or x0_arr.shape[0] != n:
-            raise ValueError("x0 must be scalar or array of length n")
-        x0_val = x0_arr          # (n,)        
-        
-     # ---- prior spec ----
- 
-    
-
-    
-    nuts_vars = []
-    slice_vars = []
-    def builder():
-
-        scale,sampled_RV,solv_dist = solve_rv(f"{name}_scale", scaling_prior, shape=n)
-        if solv_dist:
-            sampled_RV.append(scale)
-            #print(f"Added {scale} to sampled_RV, now {sampled_RV}")
-        for rv in sampled_RV:
-            if rv.name.endswith("_scale") or rv.ndim > 0:
-                nuts_vars.append(rv)
-            else:
-                slice_vars.append(rv)
-        x = pm.Deterministic(name, x0_val * (scale-1))
-        
-        return PriorBundle(
-            main = x,
-            rvs={'NUTS':nuts_vars,'Slice':slice_vars}
-        )
-
-    return builder
 # ---------- R priors ----------
 
 def make_R_prior_sigma(m, sigma=1.0, name="R_prior"):
