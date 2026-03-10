@@ -1,4 +1,5 @@
 # observations.py
+
 """Load AGAGE observation data."""
 import xarray as xr
 import numpy as np
@@ -7,7 +8,7 @@ from ..config import data_path, get_data_path
 
 class Observations():
     """
-
+    Class for retrieving and processing atmospheric observations data
     """
     def __init__(self, 
                  species: str, 
@@ -15,9 +16,11 @@ class Observations():
                  start_date: str,
                  end_date: str,
                  latest_release: bool=False,
+                 obs_data_path: str=data_path,
                  ):
         """
         Initialize the Observations class with metadata parameters
+        and check inputs are as expected.
 
         Parameters:
         - species (str):
@@ -31,7 +34,11 @@ class Observations():
         - end_date (str):
             The end date for the footprint data (format: 'YYYY-MM-DD').
         - latest_release (bool):
-        Use most recently publicly released data. Defaults to False
+            Use most recently publicly released data. 
+            Defaults to False
+        - obs_data_oath (str):
+            Option to set the AGAGE observations data path. 
+            Defaulys to data_path from config.py
         """
         # species 
         if type(species) is str:
@@ -48,17 +55,20 @@ class Observations():
             raise ValueError(f"{sites} should be either a str or list")
 
         # start_date and end_date checks
+        self.start_date = start_date
+        self.end_date = end_date
         try:
-            np.datetime64(start_date)
-            np.datetime64(end_date)
-            self.start_date
-            self.end_date 
+            np.datetime64(self.start_date)
+            np.datetime64(self.end_date)
+   
         except ValueError:
             raise ValueError("start_date and end_date must be in 'YYYY-MM-DD' format.")
 
         # latest_release 
         self.latest_release = latest_release
 
+        # Set observations data path
+        self.data_path = get_data_path(obs_data_path)
 
     def get_netcdf(self)->dict:
         """
@@ -69,7 +79,7 @@ class Observations():
         dict
             Dictionary mapping site codes to xarray.Dataset containing observations.
         """
-        obs_root_path = data_path / "observations" 
+        obs_root_path = self.data_path / "observations" 
 
         if self.latest_release:
             obs_path = get_data_path(obs_root_path / "agage_released")
@@ -80,7 +90,7 @@ class Observations():
         for site in self.sites:
             # Glob for the observation file path
             obs_fn_paths = list((obs_path / self.species.lower()).glob(f"*{site.lower()}*.nc"))
-        
+
             # If no files found, raise an error
             if not obs_fn_paths:
                 raise ValueError(f"No observation files found for site: {site}")
@@ -116,31 +126,11 @@ class Observations():
         """
         Get sliced AGAGE observations for given species and sites.
 
-        Parameters
-        ----------
-        species : str
-            Chemical species to load (e.g., 'CFC-11', 'CFC-12').
-        sites : list of str
-            List of site codes to filter the observations. If None, load all sites.
-        start_date : str, optional
-            Start date for slicing observations (default is "2000-01-01").
-        end_date : str, optional
-            End date for slicing observations (default is "2020-12-31").
-        latest_release : bool, optional
-            Whether to load the latest released data. Default is False.
-
         Returns
         -------
         dict
             Dictionary mapping site codes to xarray.Dataset containing sliced observations.
         """
-        obs_dict = self.get_netcdf(self.species, 
-                                   self.sites, 
-                                   latest_release=self.latest_release,
-                                   )
-        
-        sliced_obs = self.slice_obs(obs_dict, 
-                                    start_date=self.start_date, 
-                                    end_date=self.end_date,
-                                    )
+        obs_dict = self.get_netcdf()
+        sliced_obs = self.slice_obs(obs_dict)
         return sliced_obs
