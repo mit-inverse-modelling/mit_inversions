@@ -23,7 +23,8 @@ def get_data_path(path=None):
     if path:
         return Path(path)
     
-    if env_path := os.getenv('MITINV_DATA_PATH'):
+    env_path = os.getenv('MITINV_DATA_PATH')
+    if env_path:
         return Path(env_path)
     
     return Path.home() / 'agage'
@@ -31,3 +32,4 @@ def get_data_path(path=None):
 
 # Default data path - users can override by setting MITINV_DATA_PATH
 data_path = get_data_path()
+
