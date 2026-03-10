@@ -17,7 +17,6 @@ class FootprintFlux():
     Class for retrieving and processing footprints and flux data for specified 
     sites, date ranges, and flux/lpdm models.
     """
-
     def __init__(self,
                  start_date: str, 
                  end_date: str,
