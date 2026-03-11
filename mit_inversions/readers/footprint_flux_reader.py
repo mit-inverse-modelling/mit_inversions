@@ -11,6 +11,7 @@ from iris.coords import DimCoord
 from iris.cube import Cube
 from iris.analysis import AreaWeighted
 
+from ..config import data_path, get_data_path
 
 class FootprintFlux():
     """
@@ -28,6 +29,7 @@ class FootprintFlux():
                  species: str,
                  flux_model: list | str,
                  flux_model_version: list |str = "v8",
+                 base_data_dir: str = "/net/fs01/data/AGAGE",
                  ):
         """
         Initialize the FootprintFlux class with metadata parameters.
@@ -55,6 +57,9 @@ class FootprintFlux():
             (e.g., 'EDGAR').
         - flux_model_version (list | str):
             The version of the flux model (default: 'v8').
+        - base_data_dir (str):
+            Directory to base level of where footprints and flux data are stored. 
+            Defaults to /net/fs01/data/AGAGE
         """
         self.start_date = start_date
         self.end_date = end_date
@@ -66,9 +71,10 @@ class FootprintFlux():
         self.flux_model = flux_model.upper()
         self.flux_model_version = flux_model_version
 
-        # TO DO : Remove hardcoding of directories and replace with config file
-        self.fp_dir = "/net/fs01/data/AGAGE/footprints"
-        self.flux_dir = "/net/fs01/data/AGAGE/flux_emissions"
+        # Set data paths
+        data_path_base = get_data_path(base_data_dir)
+        self.fp_dir = data_path_base / "footprints"
+        self.flux_dir = data_path_base / "flux_emissions"
 
     def _check_inputs(self):
         """
@@ -164,7 +170,7 @@ class FootprintFlux():
         """
         # Construct the glob pattern to match files like:
         # {inlet}_{lpdm}_gfas0p5_*_inert_{yyyymm}.nc
-        search_pattern = f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}/*{inlet}_{self.lpdm}_gfas0p5_*_inert_{yyyymm}.nc"
+        search_pattern = f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}/*{inlet}_{self.lpdm}*_inert_*{yyyymm}*.nc"
         
         matching_files = glob.glob(search_pattern)
         return matching_files
@@ -250,11 +256,8 @@ class FootprintFlux():
         - molar_mass (float): 
             The molar mass of the specified species in g/mol.
         """
-        import sys 
-        sys.path.append("/home/esaboya/inverse_model_building/data")
-        from species_molar_masses import molarmasses
-
-        if self.species in molarmasses:
+        from mit_inversions.data.species_molar_masses import molarmasses
+        if self.species in molarmasses.keys():
             return molarmasses[self.species]
         else:
             raise ValueError(f"Molar mass for species {self.species} not found. Please update the molarmasses dictionary.")
@@ -468,4 +471,4 @@ class FootprintFlux():
         self.fpXflux = xr.concat(fpXflux, dim="site").assign_coords(site=sites_dim)
         self.mf_sim = self.fpXflux.sum(dim=["latitude", "longitude"])
 
-        return self.fpXflux, self.mf_sim, self.fluxes_regridded      
+        return self.fpXflux, self.mf_sim, self.fluxes_regridded
