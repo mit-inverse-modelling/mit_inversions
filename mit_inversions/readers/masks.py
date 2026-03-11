@@ -1,6 +1,7 @@
 import numpy as np
 import geopandas as gpd
 from shapely.geometry import Point
+import xarray as xr
 from ..config import data_path, get_data_path
 
 def get_countries_for_grid(lons_1d, lats_1d):
@@ -15,5 +16,11 @@ def get_countries_for_grid(lons_1d, lats_1d):
     # Spatial join
     result = gpd.sjoin(gdf_points, world[['geometry', 'NAME']], how='left', predicate='within')
 
-    # Return as 2D array matching grid shape, filling missing values with 'Ocean'
-    return result['NAME'].fillna('Ocean').to_numpy().reshape(lon_grid.shape)
+    # Return as xarray DataArray matching grid shape, filling missing values with 'Ocean'
+    countries_array = result['NAME'].fillna('Ocean').to_numpy().reshape(lon_grid.shape)
+    return xr.DataArray(
+        countries_array,
+        coords={'latitude': lats_1d, 'longitude': lons_1d},
+        dims=['latitude', 'longitude'],
+        name='countries'
+    )
