@@ -1,4 +1,4 @@
 """Readers subpackage."""
-from .observations import get_netcdf
+# from .observations import get_netcdf
 
-__all__ = ['get_netcdf', 'get_observations', 'slice_obs']
+# __all__ = ['get_netcdf', 'get_observations', 'slice_obs']
