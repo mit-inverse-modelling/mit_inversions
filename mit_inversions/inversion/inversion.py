@@ -1,15 +1,6 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-===============================================================
-
-Created:     2026-02-01
-Last update: 2026-03-05
-
-===============================================================
-"""
-
 import numpy as np
+import warnings
+
 import pymc as pm
 import arviz as az
 from geoschem.inversion.mcmc_utils import mcmc_diagnostics, mcmc_post_process
@@ -24,9 +15,11 @@ def analytical_inversion(H, y, R, xa, P):
     -----------
     H: Sensitivity matrix (Jacobian matrix) - shape (m, n)
     y: Observations - shape (m,) or (m, 1)
-    R: Observation error covariance matrix - shape (m, m)
+    R: Observation error covariance matrix - shape (m, m),
+       or the diagonal variances with shape (m,)
     xa: Prior estimates - shape (n,) or (n, 1)
-    P: Prior error covariance matrix - shape (n, n)
+    P: Prior error covariance matrix - shape (n, n),
+       or the diagonal variances with shape (n,)
     
     Returns:
     --------
@@ -89,94 +82,125 @@ def analytical_inversion(H, y, R, xa, P):
     if xa.shape[0] != n:
         raise ValueError(f"xa dimension {xa.shape[0]} does not match H columns {n}")
     
-    if R.shape != (m, m):
-        raise ValueError(f"R must be ({m}, {m}), got {R.shape}")
-    
-    if P.shape != (n, n):
-        raise ValueError(f"P must be ({n}, {n}), got {P.shape}")
-    
-    # Check if R and P are square and symmetric
-    if not np.allclose(R, R.T):
-        raise ValueError("R must be symmetric")
-    
+    # Interpret R either as a full covariance matrix or as diagonal variances.
+    if R.ndim == 1:
+        if R.shape[0] != m:
+            raise ValueError(f"Diagonal R must have length {m}, got {R.shape[0]}")
+        warnings.warn(
+            "R was provided as a 1D array; interpreting it as diagonal variances.",
+            stacklevel=2,
+        )
+        r_diag = R
+        R_full = None
+    elif R.ndim == 2:
+        if R.shape != (m, m):
+            raise ValueError(f"R must be ({m}, {m}), got {R.shape}")
+        if not np.allclose(R, R.T):
+            raise ValueError("R must be symmetric")
+        diag_R = np.diag(R)
+        if np.allclose(R, np.diag(diag_R)):
+            r_diag = diag_R
+            R_full = None
+        else:
+            r_diag = None
+            R_full = R
+    else:
+        raise ValueError(f"R must be 1D or 2D, got {R.ndim} dimensions")
+
+    # Interpret P either as a full covariance matrix or as diagonal variances.
+    if P.ndim == 1:
+        if P.shape[0] != n:
+            raise ValueError(f"Diagonal P must have length {n}, got {P.shape[0]}")
+        warnings.warn(
+            "P was provided as a 1D array; interpreting it as diagonal variances.",
+            stacklevel=2,
+        )
+        p_diag = P
+        P = np.diag(P)
+    elif P.ndim == 2:
+        if P.shape != (n, n):
+            raise ValueError(f"P must be ({n}, {n}), got {P.shape}")
+        p_diag = np.diag(P) if np.allclose(P, np.diag(np.diag(P))) else None
+    else:
+        raise ValueError(f"P must be 1D or 2D, got {P.ndim} dimensions")
+
+    # Check if P is square and symmetric
     if not np.allclose(P, P.T):
         raise ValueError("P must be symmetric")
     
     # Check if R and P are positive definite
-    try:
-        eigvals_R = np.linalg.eigvalsh(R)
-        if np.any(eigvals_R <= 0):
-            raise ValueError(f"R is not positive definite. Minimum eigenvalue: {eigvals_R.min()}")
-    except np.linalg.LinAlgError as e:
-        raise ValueError(f"Failed to compute eigenvalues of R: {str(e)}")
+    if r_diag is not None:
+        if np.any(r_diag <= 0):
+            raise ValueError(f"R is not positive definite. Minimum diagonal entry: {r_diag.min()}")
+    else:
+        try:
+            np.linalg.cholesky(R_full)
+        except np.linalg.LinAlgError as e:
+            raise ValueError(f"R is not positive definite: {str(e)}")
     
     try:
-        eigvals_P = np.linalg.eigvalsh(P)
-        if np.any(eigvals_P <= 0):
-            raise ValueError(f"P is not positive definite. Minimum eigenvalue: {eigvals_P.min()}")
+        np.linalg.cholesky(P)
     except np.linalg.LinAlgError as e:
-        raise ValueError(f"Failed to compute eigenvalues of P: {str(e)}")
-    
-    # Perform inversion with error handling
+        raise ValueError(f"P is not positive definite: {str(e)}")
+
+    resid = y - H @ xa
+
+    # Choose the cheaper solve direction based on matrix structure and size.
+    use_state_space = (n <= m)
     try:
-        # Compute H@P@H.T + R
-        HPHt_R = H @ P @ H.T + R
-        
-        # Check condition number for numerical stability
-        cond_HPHt_R = np.linalg.cond(HPHt_R)
-        if cond_HPHt_R > 1e12:
-            print(f"Warning: H@P@H.T+R is ill-conditioned (condition number: {cond_HPHt_R:.2e})")
-        
-        # Gain matrix
-        inv_HPHt_R = np.linalg.inv(HPHt_R)
-        G = P @ H.T @ inv_HPHt_R
-        
+        if p_diag is not None:
+            if np.any(p_diag <= 0):
+                raise ValueError(f"P is not positive definite. Minimum diagonal entry: {p_diag.min()}")
+            inv_P = np.diag(1.0 / p_diag)
+        else:
+            inv_P = np.linalg.inv(P)
     except np.linalg.LinAlgError as e:
-        raise np.linalg.LinAlgError(f"Failed to compute gain matrix: {str(e)}")
-    
-    # Posterior estimates
+        raise np.linalg.LinAlgError(f"Failed to invert P: {str(e)}")
+
     try:
-        xhat = xa + G @ (y - H @ xa)
+        if r_diag is not None and use_state_space:
+            inv_r = 1.0 / r_diag
+            weighted_H = H * inv_r[:, None]
+            system = H.T @ weighted_H + inv_P
+            shat = np.linalg.inv(system)
+            xhat = xa + shat @ (H.T @ (inv_r[:, None] * resid))
+            ak = shat @ (H.T @ weighted_H)
+        elif r_diag is not None:
+            PHt = P @ H.T
+            HPHt_R = H @ PHt
+            HPHt_R[np.diag_indices_from(HPHt_R)] += r_diag
+            G = PHt @ np.linalg.inv(HPHt_R)
+            xhat = xa + G @ resid
+            weighted_H = H * (1.0 / r_diag)[:, None]
+            shat = np.linalg.inv(H.T @ weighted_H + inv_P)
+            ak = G @ H
+        elif use_state_space:
+            solve_R_H = np.linalg.solve(R_full, H)
+            system = H.T @ solve_R_H + inv_P
+            shat = np.linalg.inv(system)
+            xhat = xa + shat @ (H.T @ np.linalg.solve(R_full, resid))
+            ak = shat @ (H.T @ solve_R_H)
+        else:
+            PHt = P @ H.T
+            HPHt_R = H @ PHt + R_full
+            G = PHt @ np.linalg.inv(HPHt_R)
+            xhat = xa + G @ resid
+            shat = np.linalg.inv(H.T @ np.linalg.solve(R_full, H) + inv_P)
+            ak = G @ H
+    except np.linalg.LinAlgError as e:
+        raise np.linalg.LinAlgError(f"Failed to solve analytical inversion system: {str(e)}")
     except Exception as e:
-        raise RuntimeError(f"Failed to compute posterior estimates: {str(e)}")
-    
-    # Posterior error covariance
-    try:
-        # Check condition number of R
-        cond_R = np.linalg.cond(R)
-        if cond_R > 1e12:
-            print(f"Warning: R is ill-conditioned (condition number: {cond_R:.2e})")
-        
-        # Check condition number of P
-        cond_P = np.linalg.cond(P)
-        if cond_P > 1e12:
-            print(f"Warning: P is ill-conditioned (condition number: {cond_P:.2e})")
-        
-        inv_R = np.linalg.inv(R)
-        inv_P = np.linalg.inv(P)
-        shat = H.T @ inv_R @ H + inv_P
-        shat = np.linalg.inv(shat)
-        
-        # Verify shat is positive definite
-        eigvals_shat = np.linalg.eigvalsh(shat)
-        if np.any(eigvals_shat <= 0):
-            print(f"Warning: Posterior covariance has non-positive eigenvalues. Min: {eigvals_shat.min():.2e}")
-        
-    except np.linalg.LinAlgError as e:
-        raise np.linalg.LinAlgError(f"Failed to compute posterior error covariance: {str(e)}")
-    
-    # Averaging kernel
-    try:
-        ak = G @ H
-        
-        # Check averaging kernel properties
-        trace_ak = np.trace(ak)
-        dofs = trace_ak  # Degrees of freedom for signal
-        if dofs < 0 or dofs > n:
-            print(f"Warning: Unusual DOFS value: {dofs:.2f} (expected 0 to {n})")
-        
-    except Exception as e:
-        raise RuntimeError(f"Failed to compute averaging kernel: {str(e)}")
+        raise RuntimeError(f"Failed to compute analytical inversion: {str(e)}")
+
+    # Check posterior covariance and averaging kernel properties
+    eigvals_shat = np.linalg.eigvalsh(shat)
+    if np.any(eigvals_shat <= 0):
+        print(f"Warning: Posterior covariance has non-positive eigenvalues. Min: {eigvals_shat.min():.2e}")
+
+    trace_ak = np.trace(ak)
+    dofs = trace_ak
+    if dofs < 0 or dofs > n:
+        print(f"Warning: Unusual DOFS value: {dofs:.2f} (expected 0 to {n})")
     
     return xhat, ak, shat
 
@@ -497,5 +521,3 @@ def hbmcmc_inversion(H, y, R_prior, x_prior_builder,
         return idata, model
     else:
         return idata
-
-
