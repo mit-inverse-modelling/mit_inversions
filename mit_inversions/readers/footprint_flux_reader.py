@@ -21,8 +21,8 @@ class FootprintFlux():
     def __init__(self,
                  start_date: str, 
                  end_date: str,
-                 site: list | str,
-                 site_inlet: list | str,
+                 sites: list | str,
+                 site_inlets: list | str,
                  lpdm: str,
                  met_model: str,
                  species: str,
@@ -62,8 +62,8 @@ class FootprintFlux():
         """
         self.start_date = start_date
         self.end_date = end_date
-        self.site = site
-        self.site_inlet = site_inlet
+        self.site = sites
+        self.site_inlet = site_inlets
         self.lpdm = lpdm
         self.met_model = met_model
         self.species = species
@@ -424,8 +424,8 @@ class FootprintFlux():
                 flux_data[_flux_model]["fluxes"][_coord].attrs.pop("units", None)
             if "-" in iunit:
                 iunit = self.normalize_cf_units(iunit)
-            flux_data[_flux_model]["fluxes"] = flux_data[_flux_model]["fluxes"].pint.quantify(ureg.parse_units(iunit))
-            flux_data[_flux_model]["fluxes"].pint.to("gram * meter**-2 * second**-1")
+            
+            flux_data[_flux_model]["fluxes"] = flux_data[_flux_model]["fluxes"].pint.quantify(ureg.parse_units(iunit)).pint.to("g / m^2 / s")
 
         # Regrid flux data to footprint grid
         regridded_fluxes = []

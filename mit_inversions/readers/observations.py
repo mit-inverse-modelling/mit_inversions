@@ -1,6 +1,8 @@
 # observations.py
 
 """Load AGAGE observation data."""
+import pint
+import pint_xarray
 import xarray as xr
 import numpy as np
 import pandas as pd
@@ -16,7 +18,7 @@ class Observations():
                  start_date: str,
                  end_date: str,
                  latest_release: bool=False,
-                 obs_data_path: str=data_path,
+                 base_data_path: str=data_path,
                  ):
         """
         Initialize the Observations class with metadata parameters
@@ -36,9 +38,9 @@ class Observations():
         - latest_release (bool):
             Use most recently publicly released data. 
             Defaults to False
-        - obs_data_oath (str):
-            Option to set the AGAGE observations data path. 
-            Defaulys to data_path from config.py
+        - base_data_oath (str):
+            Option to set the AGAGE data path. 
+            Defaults to data_path from config.py
         """
         # species 
         if type(species) is str:
@@ -68,7 +70,30 @@ class Observations():
         self.latest_release = latest_release
 
         # Set observations data path
-        self.data_path = get_data_path(obs_data_path)
+        self.data_path = get_data_path(base_data_path)
+
+    def unit_registry(self)-> pint_xarray.UnitRegistry:
+        """
+        Create and return a pint_xarray UnitRegistry for handling units in the 
+        observations data.
+        
+        This method should:
+        - Initialize a UnitRegistry instance.
+        - Define any custom units or aliases needed for the specific datasets 
+          being used.
+        - Return the configured UnitRegistry instance.
+        
+        Returns:
+        - ureg: 
+            A pint_xarray.UnitRegistry instance with necessary units defined.
+        """
+        # Initialize the UnitRegistry
+        ureg = pint.UnitRegistry(force_ndarray=True)
+        ureg.define('ppm = 1e-6 * mole / mole')
+        ureg.define('ppb = 1e-9 * mole / mole')
+        ureg.define('ppt = 1e-12 * mole / mole')
+        ureg.define('m2 = m * m = meter ** 2')
+        return ureg
 
     def get_netcdf(self)->dict:
         """
@@ -131,6 +156,29 @@ class Observations():
         dict
             Dictionary mapping site codes to xarray.Dataset containing sliced observations.
         """
+        # Get data
         obs_dict = self.get_netcdf()
+
+        # Slice to desired time range
         sliced_obs = self.slice_obs(obs_dict)
-        return sliced_obs
+
+        sliced_obs_dict = {}
+
+        # Load unit registry
+        ureg = self.unit_registry()
+        pint_xarray.accessors.default_registry = ureg
+ 
+        # Attach units to the concentration variables in each dataset
+        obs_unit = "mol/mol"
+        print("Loading observations ...")
+        for site, ds in sliced_obs.items():
+            sliced_obs_dict[site] = ds.copy()
+
+            for var in ["mf", "mf_repeatability", "mf_repeatability"]:
+                try:
+                    iunit_sf = float(ds[var].attrs["units"])
+                    sliced_obs_dict[site][var] = sliced_obs[site][var].pint.quantify(ureg.parse_units(obs_unit)) * iunit_sf
+                except KeyError:
+                    print(f"Variable '{var}' not found in dataset for site '{site}'. Skipping unit assignment for this variable.")  
+
+        return sliced_obs_dict
