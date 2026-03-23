@@ -1,5 +1,17 @@
 # model_error.py
 # Created: 20 March 2026
+# Author: Eric Saboya
+# Copyright (c) 2026. All rights reserved.
+# License: MIT License
+# 
+# Description: 
+#   This module implements methods for calculating model error in the ARTEMIS framework.
+#   Model error is a crucial component of the inversion process, as it quantifies the
+#   discrepancies between the model predictions and the observed data, which is essential for 
+#   improving the accuracy of the flux estimates. The ModelError class provides a flexible
+#   interface for calculating model error using different methods, allowing users to select 
+#   the most appropriate approach for their specific application
+
 
 import numpy as np 
 import xarray as xr 
@@ -81,17 +93,15 @@ class ModelError():
         Wrapper function to calculate the model error using the selected method.
         """
 
-        function_model_map = {
-            "pollution_event_error": pollution_event_minmodel_error,
-        }
-
         for site in self.model_data_dict.keys():
             print(f"Calculating model error for {site} ...")
-            obs = self.model_data_dict[site]["obs"]
-            sim = self.model_data_dict[site]["sim"]
+            obs = self.model_data_dict[site]["mf"]
+            sim = self.model_data_dict[site]["mf_sim"]
 
-            # Calculate model error 
-            model_error = function_model_map[self.model_method](obs, sim)
+            # Calculate model error
+            if self.model_method == "pollution_event_error":
+                model_error = self.pollution_event_minmodel_error(obs, sim)
+            
 
             self.model_data_dict[site]['model_error'] = xr.DataArray(model_error, coords=obs.coords)
         
