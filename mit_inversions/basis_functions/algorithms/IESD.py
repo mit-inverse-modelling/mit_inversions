@@ -278,4 +278,5 @@ class IWASP:
         """
         Run the algorithm!
         """
-        return self.adaptive_partition_convergent()
+        labels_out, G_out = self.adaptive_partition_convergent()
+        return labels_out, G_out

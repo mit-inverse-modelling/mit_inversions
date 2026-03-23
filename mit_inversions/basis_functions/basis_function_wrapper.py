@@ -1,10 +1,29 @@
 # basis_function_wrapper.py
 # Created: 5 March 2026
+# Author: Eric Saboya
+# Copyright (c) 2026. All rights reserved.
+# License: MIT License
+# 
+# Description: 
+#   This module implements a wrapper class for calculating basis functions
+#   used in the ARTEMIS inversion framework. The BasisFunctions class controls
+#   the logic of how basis function regions are calculated based on the choice of
+#   algorithm, temporal masking, and spatial masking. It provides a unified interface
+#   for computing basis function grids from parsed footprint-flux grids, allowing for
+#   flexibility in the selection of algorithms and masking options. The class supports
+#   multiple basis function algorithms, including IWASP and Regional Sum, and incorporates 
+#   options for applying land-sea and country masking to ensure that basis functions are 
+#   physically meaningful and do not overlap with irrelevant regions. 
+#   The calculate() method is the main function for computing the basis function grid based
+#   on the specified parameters and input data.
 
 import sys 
 import glob
 import numpy as np
 import xarray as xr
+
+from mit_inversions.basis_functions.algorithms.IESD import IWASP
+from mit_inversions.basis_functions.algorithms.RegionalSum import RegionalSum
 
 class BasisFunctions:
     """
@@ -25,7 +44,7 @@ class BasisFunctions:
                  bf_algorithm: str,
                  model_domain: str,
                  data_mask: np.ndarray=None,
-                 country_masking: bool=False,
+                 country_masking: bool=True,
                  fp_flux_grid_error: xr.array=None,
                  target_regions: int=50,
                  max_iter: int=1000,
@@ -140,15 +159,16 @@ class BasisFunctions:
 
         # Mask data along the time axis if calculating
         # basis functions at specific times
-        if self.mask is None:
-            grid = self.fp_flux_grid.mean(dim="time").values
+        # if self.mask is None:
+        #     grid = self.fp_flux_grid.mean(dim="time").values
         
-        else:
-            grid = np.nanmean(self.fp_flux_grid.values[self.mask,:,:], axis=0)
+        # else:
+        #     grid = np.nanmean(self.fp_flux_grid.values[self.mask,:,:], axis=0)
         
+        grid = self.fp_flux_grid
+
         # Calculate basis functions from specified algorithm
-        if self.algorithm == "iwasp":
-            from algorithms.IESD import IWASP
+        if self.algorithm.lower() == "iwasp":
             bf_setup = IWASP(fp_flux_grid=grid,
                             fp_flux_grid_error=self.fp_flux_grid_error,
                             target_regions=self.target_regions,
@@ -157,11 +177,17 @@ class BasisFunctions:
                             alpha=self.alpha,
                             smooth_sigma=self.smooth_sigma,
                             )
-            bf_labels, bf_grid = bf_setup.run()
-        
-        elif self.algorithm == "regional_sum":
-            from algorithms.RegionalSum import RegionalSum
+            out = bf_setup.run()
+
+            unique_arr = list(set(out[0].ravel()))
+            new_grid = np.zeros_like(out[0])
+
+            for i, arr in enumerate(unique_arr):
+                ind_x, ind_y = np.where(out[0] == arr)
+                new_grid[ind_x, ind_y] = i
+            bf_grid = new_grid
             
+        elif self.algorithm.lower() == "regional_sum":            
             bf_setup = RegionalSum(fp_flux_grid=grid,
                                    target_regions=self.target_regions,
                                    max_iter=self.max_iter,

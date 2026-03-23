@@ -14,7 +14,7 @@ class RegionalSum:
     def __init__(self,
                  fp_flux_grid: np.ndarray,
                  target_regions: int=40,
-                 max_iter: int=1000,
+                 max_iter: int=2000,
                  ):
         """
         Initialize the RegionalSum algorithm with the footprint-flux grid 
@@ -172,6 +172,6 @@ class RegionalSum:
         for i in range(len(regions)):
             x_start, x_stop = regions[i][0], regions[i][1]
             y_start, y_stop = regions[i][2], regions[i][3]
-        bf_grid[x_start:x_stop, y_start:y_stop] = i
+            bf_grid[x_start:x_stop, y_start:y_stop] = i
 
         return optimal_bucket, bf_grid
