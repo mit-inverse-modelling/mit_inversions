@@ -7,12 +7,13 @@ data_dict = {
     "start_date": "YYYY-MM-DD",
     "end_date": "YYYY-MM-DD",
     "sites": [],
-    "species": "C",
+    "species": "cfc-11",
     "base_data_dir": "",
     "model_error_method": "",
+
     "observations": {
         "latest_release": False,
-        "average": "4H",
+        "average": "4h",
         },
     
     "footprints": {
@@ -22,8 +23,16 @@ data_dict = {
         "flux_model": "EDGAR",
         "flux_model_version": "v8",
         },
-}
 
+    "basis_functions": {
+        "bf_algorithm": "iwasp",
+        "model_domain": "EASTASIA",
+        "country_masking": True,
+        "target_regions": 50,
+        "fp_flux_grid_error": None,
+        },
+
+}
 
 
 
