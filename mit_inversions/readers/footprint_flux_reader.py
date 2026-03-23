@@ -257,7 +257,7 @@ class FootprintFlux():
         """
         from mit_inversions.data.species_molar_masses import molarmasses
         if self.species in molarmasses.keys():
-            return molarmasses[self.species]
+            return molarmasses[self.species.upper()]
         else:
             raise ValueError(f"Molar mass for species {self.species} not found. Please update the molarmasses dictionary.")
         

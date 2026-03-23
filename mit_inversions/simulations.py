@@ -1,5 +1,11 @@
 # simulations.py
 # Created: 17 March 2026
+# Author: Eric Saboya
+# Copyright (c) 2026. All rights reserved.
+# License: MIT License
+# 
+# Description: 
+#  This module implements the forward simulation component of the ARTEMIS framework.
 
 import xarray as xr
 from .readers.observations import Observations
@@ -75,9 +81,12 @@ def forward_simulation(data_dict: dict)->dict:
     # Align forward simulations to observations
     data_aligned_dict = data_merge(observations, fp_flux_grid, mf_sim)
 
+    # DATA FILTERING (optional)
+
     # Average data into specified bins
     average = data_dict['observations']['average']
     if average is not None:
+        average = average.lower()
         data_ave_dict = {}
         for site in data_aligned_dict.keys():
             data_temp = data_aligned_dict[site].resample({"time": average}).pad().dropna("time")
