@@ -40,12 +40,12 @@ class BasisFunctions:
     """
 
     def __init__(self, 
-                 fp_flux_grid: xr.array,
+                 fp_flux_grid: xr.DataArray,
                  bf_algorithm: str,
                  model_domain: str,
                  data_mask: np.ndarray=None,
                  country_masking: bool=True,
-                 fp_flux_grid_error: xr.array=None,
+                 fp_flux_grid_error: xr.DataArray=None,
                  target_regions: int=50,
                  max_iter: int=1000,
                  var_threshold=None,

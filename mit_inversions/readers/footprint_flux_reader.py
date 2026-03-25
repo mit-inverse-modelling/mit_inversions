@@ -1,6 +1,7 @@
 # footprint_flux_reader.py
 
 import glob
+import site
 import pint
 import pint_xarray
 import xarray as xr
@@ -21,13 +22,13 @@ class FootprintFlux():
     def __init__(self,
                  start_date: str, 
                  end_date: str,
-                 sites: list | str,
-                 site_inlets: list | str,
-                 lpdm: str,
-                 met_model: str,
-                 species: str,
-                 flux_model: list | str,
-                 flux_model_version: list |str = "v8",
+                 sites: list | str | None = None,
+                 site_inlets: list | str | None = None,
+                 lpdm: str | None = None,
+                 met_model: str | None = None,
+                 species: str | None = None,
+                 flux_model: list | str | None = None,
+                 flux_model_version: list | str | None = "v8",
                  base_data_dir: str = "/net/fs01/data/AGAGE",
                  ):
         """
@@ -67,7 +68,7 @@ class FootprintFlux():
         self.lpdm = lpdm
         self.met_model = met_model
         self.species = species
-        self.flux_model = flux_model.upper()
+        self.flux_model = flux_model
         self.flux_model_version = flux_model_version
 
         # Set data paths
@@ -75,16 +76,11 @@ class FootprintFlux():
         self.fp_dir = data_path_base / "footprints"
         self.flux_dir = data_path_base / "flux_emissions"
 
-    def _check_inputs(self):
+    def _check_common_inputs(self):
         """
-        Validate the input parameters to ensure they are in the correct format 
-        and consistent with each other.
-        This method checks:
-        - The date formats for start_date and end_date.
-        - That site and site_inlet are either both lists of the same length 
-          or both strings.
-        - That lpdm and met_model are non-empty strings.
-        - That flux_model and flux_model_version are either both lists of the same length or both strings.
+        Validate common input parameters shared by footprint and flux workflows.
+                This method checks:
+                - Date values can be parsed by numpy datetime.
         
         Raises:
         - ValueError: If any of the input parameters are invalid.
@@ -96,6 +92,16 @@ class FootprintFlux():
         except ValueError:
             raise ValueError("start_date and end_date must be in 'YYYY-MM-DD' format.")
         
+    def _check_footprint_inputs(self):
+        """
+        Validate and normalize footprint-specific inputs.
+        """
+        # if self.site is None or self.site_inlet is None:
+        #     raise ValueError("sites and site_inlets must be provided for footprint operations.")
+
+        if not self.lpdm or not self.met_model:
+            raise ValueError("lpdm and met_model must be provided for footprint operations.")
+
         # Check site and site_inlet consistency
         if isinstance(self.site, list) and isinstance(self.site_inlet, list):
             if len(self.site) != len(self.site_inlet):
@@ -107,20 +113,39 @@ class FootprintFlux():
 
         else:
             raise ValueError("site and site_inlet must both be either lists or strings.")
-        
-        # Check lpdm and met_model
-        if not self.lpdm or not self.met_model or not self.flux_model or not self.species:
-            raise ValueError("lpdm, met_model, flux_model, and species must be non-empty strings.")
 
-        #  Check flux_model and flux_model_version consistency
-        if isinstance(self.flux_model, list) and isinstance(self.flux_model_version, list):
+        for site_val, inlet_val in zip(self.site, self.site_inlet):
+            if not isinstance(site_val, str) or not site_val.strip():
+                raise ValueError("Each site must be a non-empty string for footprint operations.")
+            # if not isinstance(inlet_val, str) or not inlet_val.strip():
+            #     raise ValueError("Each site_inlet must be a non-empty string for footprint operations.")
+
+    def _check_flux_inputs(self):
+        """
+        Validate and normalize flux-specific inputs.
+        """
+        if not self.species:
+            raise ValueError("species must be provided for flux operations.")
+
+        if not self.flux_model:
+            raise ValueError("flux_model must be provided for flux operations.")
+
+        if isinstance(self.flux_model, list):
+            self.flux_model = [str(model).upper() for model in self.flux_model]
+        elif isinstance(self.flux_model, str):
+            self.flux_model = [self.flux_model.upper()]
+        else:
+            raise ValueError("flux_model must be either a string or list of strings.")
+
+        if self.flux_model_version is None:
+            self.flux_model_version = ["v8"] * len(self.flux_model)
+        elif isinstance(self.flux_model_version, list):
             if len(self.flux_model) != len(self.flux_model_version):
                 raise ValueError("If flux_model and flux_model_version are lists, they must be of the same length.")
-        elif isinstance(self.flux_model, str) and isinstance(self.flux_model_version, str):
-            self.flux_model = [self.flux_model]
-            self.flux_model_version = [self.flux_model_version]
+        elif isinstance(self.flux_model_version, str):
+            self.flux_model_version = [self.flux_model_version] * len(self.flux_model)
         else:
-            raise ValueError("flux_model and flux_model_version must both be either lists or strings.")  
+            raise ValueError("flux_model_version must be either a string, list of strings, or None.")
     
     def _generate_month_range(self)->list:
         """
@@ -146,6 +171,18 @@ class FootprintFlux():
                 current = current.replace(month=current.month + 1)
         
         return months
+
+    def file_search_pattern(self, site: str, inlet: str, yyyymm: str) -> str:
+        """Construct the file search pattern for footprint files based on site, inlet, and year-month.
+        Parameters:
+        - site (str): The name of the site (e.g., 'Mace Head').
+        - inlet (str): The name of the inlet (e.g., 'inlet1').
+        - yyyymm (str): The year and month in 'YYYYMM' format (e.g., '202401').
+        Returns:    
+        - search_pattern (str): The constructed file search pattern for glob.
+        """        
+        search_pattern = f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}/*_{self.lpdm.upper()}*_inert_*{yyyymm}*.nc"
+        return search_pattern
     
     def _find_files_for_month(self, 
                               site: str, 
@@ -169,8 +206,7 @@ class FootprintFlux():
         """
         # Construct the glob pattern to match files like:
         # {inlet}_{lpdm}_gfas0p5_*_inert_{yyyymm}.nc
-        search_pattern = f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}/*{inlet}_{self.lpdm}*_inert_*{yyyymm}*.nc"
-        
+        search_pattern = self.file_search_pattern(site, inlet, yyyymm)
         matching_files = glob.glob(search_pattern)
         return matching_files
     
@@ -270,7 +306,8 @@ class FootprintFlux():
         {site: {yyyymm: data}}
         """
         # Check the validity of the input parameters
-        self._check_inputs()
+        self._check_common_inputs()
+        self._check_footprint_inputs()
         
         # Generate all months in the date range
         months = self._generate_month_range()
@@ -306,6 +343,14 @@ class FootprintFlux():
                 else:
                     print(f"No footprint file found for {site} ({inlet}) in {yyyymm}")
 
+            if len(site_fps) == 0:
+                raise ValueError(
+                    f"No footprint files found for site={site}, inlet={inlet}, "
+                    f"date range {self.start_date} to {self.end_date}, "
+                    f"lpdm={self.lpdm}, met_model={self.met_model}."
+                    f"Search string: {self.file_search_pattern(site, inlet, yyyymm)}"
+                )
+
             self.footprints[site] = xr.concat(site_fps, dim='time')
         return self.footprints
         
@@ -315,7 +360,8 @@ class FootprintFlux():
         Stores data in self.fluxes as a dictionary: {species: data}
         """ 
         # Check the validity of the input parameters
-        self._check_inputs()
+        self._check_common_inputs()
+        self._check_flux_inputs()
 
         # Retrieve fluxes for each specified flux model and version
         self.fluxes = {}
@@ -342,7 +388,7 @@ class FootprintFlux():
         
         return self.fluxes
 
-    def unit_registry(self)-> pint_xarray.UnitRegistry:
+    def unit_registry(self)-> pint.UnitRegistry:
         """
         Create and return a pint_xarray UnitRegistry for handling units in the 
         footprint and flux data.
@@ -399,6 +445,10 @@ class FootprintFlux():
           footprints if necessary.
         - Store the aligned data in a new attribute (e.g., self.aligned_data).
         """
+        self._check_common_inputs()
+        self._check_footprint_inputs()
+        self._check_flux_inputs()
+
         # Load unit registry
         ureg = self.unit_registry()
         pint_xarray.accessors.default_registry = ureg
