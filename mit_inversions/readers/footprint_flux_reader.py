@@ -1,6 +1,7 @@
 # footprint_flux_reader.py
 
 import glob
+import re
 import site
 import pint
 import pint_xarray
@@ -172,7 +173,7 @@ class FootprintFlux():
         
         return months
 
-    def file_search_pattern(self, site: str, inlet: str, yyyymm: str) -> str:
+    def _file_search_pattern(self, site: str, inlet: str, yyyymm: str) -> str:
         """Construct the file search pattern for footprint files based on site, inlet, and year-month.
         Parameters:
         - site (str): The name of the site (e.g., 'Mace Head').
@@ -206,10 +207,21 @@ class FootprintFlux():
         """
         # Construct the glob pattern to match files like:
         # {inlet}_{lpdm}_gfas0p5_*_inert_{yyyymm}.nc
-        search_pattern = self.file_search_pattern(site, inlet, yyyymm)
+        search_pattern = self._file_search_pattern(site, inlet, yyyymm)
         matching_files = glob.glob(search_pattern)
         return matching_files
     
+    def _species_string_format(self, format=None) -> str:
+        if format is None:
+            return self.species
+        elif format == "lower":
+            return self.species.lower()
+        elif format == "upper":
+            return self.species.upper()
+        else:
+            return re.sub(r'^[a-zA-Z]+', lambda m: m.group().upper(), self.species)
+
+
     def regrid_flux_to_footprint(self, 
                                  flux_data, 
                                  footprint_data, 
@@ -292,8 +304,10 @@ class FootprintFlux():
             The molar mass of the specified species in g/mol.
         """
         from mit_inversions.data.species_molar_masses import molarmasses
-        if self.species in molarmasses.keys():
-            return molarmasses[self.species.upper()]
+        # Make all keys in molarmasses lowercase for case-insensitive lookup
+        molarmasses = {k.lower(): v for k, v in molarmasses.items()}
+        if self.species.lower() in molarmasses.keys():
+            return molarmasses[self.species.lower()]
         else:
             raise ValueError(f"Molar mass for species {self.species} not found. Please update the molarmasses dictionary.")
         
@@ -348,7 +362,7 @@ class FootprintFlux():
                     f"No footprint files found for site={site}, inlet={inlet}, "
                     f"date range {self.start_date} to {self.end_date}, "
                     f"lpdm={self.lpdm}, met_model={self.met_model}."
-                    f"Search string: {self.file_search_pattern(site, inlet, yyyymm)}"
+                    f"Search string: {self._file_search_pattern(site, inlet, yyyymm)}"
                 )
 
             self.footprints[site] = xr.concat(site_fps, dim='time')
@@ -368,7 +382,7 @@ class FootprintFlux():
         for i, _flux_model in enumerate(self.flux_model):
             _flux_model_version = self.flux_model_version[i]
 
-            flux_file_path = f"{self.flux_dir}/{_flux_model}{_flux_model_version}/{self.species.upper()}/*{_flux_model}_2024_GHG_{self.species.upper()}_{self.start_date[0:4]}*"
+            flux_file_path = f"{self.flux_dir}/{_flux_model}{_flux_model_version}/{self._species_string_format(format='upper_lower')}/*{_flux_model}_2024_GHG_{self._species_string_format(format='upper_lower')}_{self.start_date[0:4]}*"
             flux_files = glob.glob(flux_file_path)
         
             if flux_files:
@@ -377,6 +391,7 @@ class FootprintFlux():
                     print(f"Warning: Multiple flux files found for {self.species} in {self.start_date[0:4]}. Using {flux_file}")
             else:
                 print(f"No flux file found for {self.species} in {self.start_date[0:4]} with model {_flux_model} version {_flux_model_version}")
+                print(f"Search string: {flux_file_path}")
                 return None
 
             try:

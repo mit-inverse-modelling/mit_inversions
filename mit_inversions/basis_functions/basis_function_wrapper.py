@@ -42,7 +42,6 @@ class BasisFunctions:
     def __init__(self, 
                  fp_flux_grid: xr.DataArray,
                  bf_algorithm: str,
-                 model_domain: str,
                  data_mask: np.ndarray=None,
                  country_masking: bool=True,
                  fp_flux_grid_error: xr.DataArray=None,
@@ -62,11 +61,6 @@ class BasisFunctions:
         - bf_algorithm (str):
             Basis function algorithm. 
             Select from 'regional_sum' or 'iwasp'.
-        - model_domain (str):
-            Model domain name (usually specified by footprint domain)
-            e.g., 'EASTASIA', 'EUROPE', 
-            Used for selecting appropriate files for post-processing 
-            spatial masking.
         - data_mask (np.ndarray):
             Create basis functions from a data subset
             based on the input mask.
@@ -105,9 +99,6 @@ class BasisFunctions:
 
         # Target number of basis functions
         self.target_regions = target_regions
-
-        # Model domain
-        self.domain = model_domain
 
         # Basis function algorithm
         expected_alg = ["iwasp", "regional_sum"]
