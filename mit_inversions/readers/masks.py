@@ -11,7 +11,7 @@ def get_countries_for_grid(lons_1d, lats_1d):
     Returns an xarray DataArray of shape (n_lat, n_lon) with string values
     like 'CHN', 'USA', 'GBR', or 'OCN' for ocean cells.
     """
-    mask_path = get_data_path(data_path / "mask/countries/world_countries.gpkg")
+    mask_path = get_data_path(data_path / "masks/countries/world_countries.gpkg")
     world = gpd.read_file(mask_path)
     lon_grid, lat_grid = np.meshgrid(lons_1d, lats_1d)
     geometry = [Point(xy) for xy in zip(lon_grid.ravel(), lat_grid.ravel())]
@@ -35,7 +35,7 @@ def get_country_info():
     Includes an 'OCN' row for ocean.
     """
     import pandas as pd
-    mask_path = get_data_path(data_path / "mask/countries/world_countries.gpkg")
+    mask_path = get_data_path(data_path / "masks/countries/world_countries.gpkg")
     world = gpd.read_file(mask_path)
     info = world[['ADM0_A3', 'NAME', 'CONTINENT']].copy()
     info = pd.concat([info, pd.DataFrame([{
