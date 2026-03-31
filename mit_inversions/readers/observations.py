@@ -72,7 +72,7 @@ class Observations():
         # Set observations data path
         self.data_path = get_data_path(base_data_path)
 
-    def unit_registry(self)-> pint_xarray.UnitRegistry:
+    def unit_registry(self)-> pint.UnitRegistry:
         """
         Create and return a pint_xarray UnitRegistry for handling units in the 
         observations data.

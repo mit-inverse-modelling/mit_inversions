@@ -342,7 +342,7 @@ class FootprintFlux():
         
         return self.fluxes
 
-    def unit_registry(self)-> pint_xarray.UnitRegistry:
+    def unit_registry(self)-> pint.UnitRegistry:
         """
         Create and return a pint_xarray UnitRegistry for handling units in the 
         footprint and flux data.

@@ -40,12 +40,10 @@ class BasisFunctions:
     """
 
     def __init__(self, 
-                 fp_flux_grid: xr.array,
+                 fp_flux_grid: xr.DataArray,
                  bf_algorithm: str,
                  model_domain: str,
-                 data_mask: np.ndarray=None,
-                 country_masking: bool=True,
-                 fp_flux_grid_error: xr.array=None,
+                 fp_flux_grid_error: xr.DataArray=None,
                  target_regions: int=50,
                  max_iter: int=1000,
                  var_threshold=None,
@@ -56,7 +54,7 @@ class BasisFunctions:
         Initialize basis function class and parameters
 
         Parameters:
-        - fp_flux_grid (np.ndarray):
+        - fp_flux_grid (xr.DataArray):
             3D array of footprint-flux values indexed 
             [time, latitutde, longitude]
         - bf_algorithm (str):
@@ -67,15 +65,10 @@ class BasisFunctions:
             e.g., 'EASTASIA', 'EUROPE', 
             Used for selecting appropriate files for post-processing 
             spatial masking.
-        - data_mask (np.ndarray):
-            Create basis functions from a data subset
-            based on the input mask.
-            Mask should be a list of True False elements.
-            Defaults to None.
         - country_masking (bool):
             Option to apply a country mask to ensure 
             basis functions do not overlap country borders.
-        - fp_flux_grid_error (np.ndarray):
+        - fp_flux_grid_error (xr.DataArray):
             Optional flux uncertainty grid. Needed for iwasp 
             algorithm (defaults to 1/sqrt(F) if not specified).
         - target_regions (int):
@@ -116,12 +109,6 @@ class BasisFunctions:
         else:
             self.algorithm = bf_algorithm
         
-        # Mask to apply to time-axis of fp_flux_grid
-        self.mask = data_mask
-        
-        # Country masking    
-        self.country_masking = country_masking
-
         # Footprint-flux uncertainty grid
         self.fp_flux_grid_error = fp_flux_grid_error
         
@@ -131,40 +118,15 @@ class BasisFunctions:
         self.alpha = alpha
         self.smooth_sigma = smooth_sigma
 
-
-    def get_landsea_mask(self):
-        """
-        Read relevant model domain land-sea mask
-        """
-        return 1
-
-    def get_country_mask(self):
-        """
-        Read relevant country masks for domain
-        """
-        return 1
-
-
     def calculate(self):
         """
         Calculate basis function grid based on specified parameters.
 
         Function flow
-        1. Apply time axis masking if supplied 
-        2. Calculate mean footprint-flux field for inversion period
-        3. Calculate basis function grid from specified algorithm
-        4. Apply land-sea masking (non-optional)
-        5. Apply country masking if specified
+        1. Calculate basis function grid from specified algorithm
+        2. Apply country masking if specified
         """
 
-        # Mask data along the time axis if calculating
-        # basis functions at specific times
-        # if self.mask is None:
-        #     grid = self.fp_flux_grid.mean(dim="time").values
-        
-        # else:
-        #     grid = np.nanmean(self.fp_flux_grid.values[self.mask,:,:], axis=0)
-        
         grid = self.fp_flux_grid
 
         # Calculate basis functions from specified algorithm
@@ -193,6 +155,5 @@ class BasisFunctions:
                                    max_iter=self.max_iter,
                                    )
             bf_bucket, bf_grid = bf_setup.run()
-
 
         return bf_grid                  

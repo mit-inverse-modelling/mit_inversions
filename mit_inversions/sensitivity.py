@@ -19,8 +19,11 @@
 #   for each site.
 
 import numpy as np
+import pandas as pd
 import xarray as xr
+
 from mit_inversions.basis_functions.basis_function_wrapper import BasisFunctions
+from mit_inversions.readers.masks import get_countries_for_grid
 
 def inversion_grid_sensitivity(data_dict_inputs: dict, 
                                model_data_dict: dict,
@@ -87,7 +90,6 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
     basis_function_grid = BasisFunctions(fp_flux_grid=fp_flux_grid_mean,
                                          bf_algorithm=bf_algorithm,
                                          model_domain=basis_function_args['model_domain'],
-                                         country_masking=country_masking,
                                          fp_flux_grid_error = fp_flux_grid_error,
                                          target_regions=target_regions,
                                         ).calculate()
@@ -99,6 +101,32 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
                 "longitude": model_data_dict[site]['fp_flux_grid'].longitude,
                 },
     )
+
+    # Apply country masking if specified
+    if country_masking:
+        print("Applying country masking to basis function grid ...")
+        # Retrieve country mask for model domain 
+        country_grid = get_countries_for_grid(ds_basis_function.longitude.values, ds_basis_function.latitude.values)
+        
+        # Stack basis function and country mask grids 
+        country_stack = country_grid.stack(space=('latitude', 'longitude')).values
+        bf_grid_stack = ds_basis_function['basis_function_grid'].stack(space=('latitude', 'longitude')).values
+
+        df_bf_cmask = pd.DataFrame({"country": country_stack, "region": bf_grid_stack})
+        df_bf_cmask['new_region'] = df_bf_cmask['region'].astype(str) + "_" + df_bf_cmask['country'].astype(str)
+
+        # Encode new sub-regions as integers starting from 0
+        df_bf_cmask['new_region_id'] = pd.factorize(df_bf_cmask['new_region'])[0]
+
+        print(f"Original number of basis functions: {len(np.unique(bf_grid_stack))}")
+        print(f"Updated number of regions after ensuring country uniqueness: {df_bf_cmask['new_region_id'].nunique()}")
+
+        # Reshape back to original 2D grid shape
+        original_shape = ds_basis_function['basis_function_grid'].shape
+        new_region_grid = df_bf_cmask['new_region_id'].values.reshape(original_shape)
+
+        ds_basis_function['basis_function_grid'].data = new_region_grid
+
 
     # Stack basis function grid
     bf_grid_stack = ds_basis_function['basis_function_grid'].stack(space=('latitude', 'longitude'))
