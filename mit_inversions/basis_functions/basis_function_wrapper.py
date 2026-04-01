@@ -55,7 +55,7 @@ class BasisFunctions:
         Initialize basis function class and parameters
 
         Parameters:
-        - fp_flux_grid (np.ndarray):
+        - fp_flux_grid (xr.DataArray):
             3D array of footprint-flux values indexed 
             [time, latitutde, longitude]
         - bf_algorithm (str):
@@ -69,7 +69,7 @@ class BasisFunctions:
         - country_masking (bool):
             Option to apply a country mask to ensure 
             basis functions do not overlap country borders.
-        - fp_flux_grid_error (np.ndarray):
+        - fp_flux_grid_error (xr.DataArray):
             Optional flux uncertainty grid. Needed for iwasp 
             algorithm (defaults to 1/sqrt(F) if not specified).
         - target_regions (int):
@@ -107,12 +107,6 @@ class BasisFunctions:
         else:
             self.algorithm = bf_algorithm
         
-        # Mask to apply to time-axis of fp_flux_grid
-        self.mask = data_mask
-        
-        # Country masking    
-        self.country_masking = country_masking
-
         # Footprint-flux uncertainty grid
         self.fp_flux_grid_error = fp_flux_grid_error
         
@@ -122,46 +116,54 @@ class BasisFunctions:
         self.alpha = alpha
         self.smooth_sigma = smooth_sigma
 
-
-    def get_landsea_mask(self):
-        """
-        Read relevant model domain land-sea mask
-        """
-        return 1
-
-    def get_country_mask(self):
-        """
-        Read relevant country masks for domain
-        """
-        return 1
-
-
     def calculate(self):
         """
         Calculate basis function grid based on specified parameters.
 
         Function flow
-        1. Apply time axis masking if supplied 
-        2. Calculate mean footprint-flux field for inversion period
-        3. Calculate basis function grid from specified algorithm
-        4. Apply land-sea masking (non-optional)
-        5. Apply country masking if specified
+        1. Calculate basis function grid from specified algorithm
+        2. Apply country masking if specified
         """
 
-        # Mask data along the time axis if calculating
-        # basis functions at specific times
-        # if self.mask is None:
-        #     grid = self.fp_flux_grid.mean(dim="time").values
-        
-        # else:
-        #     grid = np.nanmean(self.fp_flux_grid.values[self.mask,:,:], axis=0)
-        
         grid = self.fp_flux_grid
+
+        if hasattr(grid, "ndim") and grid.ndim > 2:
+            if hasattr(grid, "dims"):
+                reduce_dims = grid.dims[:-2]
+                grid = grid.mean(dim=reduce_dims)
+            else:
+                grid = np.nanmean(np.asarray(grid, dtype=float), axis=tuple(range(np.ndim(grid) - 2)))
 
         # Calculate basis functions from specified algorithm
         if self.algorithm.lower() == "iwasp":
-            bf_setup = IWASP(fp_flux_grid=grid,
-                            fp_flux_grid_error=self.fp_flux_grid_error,
+            grid_arr = np.asarray(grid, dtype=float)
+            if grid_arr.ndim != 2:
+                raise ValueError(f"IWASP expects a 2D spatial grid; got shape {grid_arr.shape}")
+
+            if self.fp_flux_grid_error is None:
+                fp_flux_grid_error = np.zeros_like(grid_arr, dtype=float)
+                positive_mask = grid_arr > 0.0
+                fp_flux_grid_error[positive_mask] = 1.0 / np.sqrt(grid_arr[positive_mask])
+            else:
+                fp_flux_grid_error = self.fp_flux_grid_error
+                if hasattr(fp_flux_grid_error, "ndim") and fp_flux_grid_error.ndim > 2:
+                    if hasattr(fp_flux_grid_error, "dims"):
+                        reduce_dims = fp_flux_grid_error.dims[:-2]
+                        fp_flux_grid_error = fp_flux_grid_error.mean(dim=reduce_dims)
+                    else:
+                        fp_flux_grid_error = np.nanmean(
+                            np.asarray(fp_flux_grid_error, dtype=float),
+                            axis=tuple(range(np.ndim(fp_flux_grid_error) - 2)),
+                        )
+
+                fp_flux_grid_error = np.asarray(fp_flux_grid_error, dtype=float)
+                if fp_flux_grid_error.ndim != 2:
+                    raise ValueError(
+                        f"IWASP fp_flux_grid_error must be 2D after reduction; got shape {fp_flux_grid_error.shape}"
+                    )
+
+            bf_setup = IWASP(fp_flux_grid=grid_arr,
+                            fp_flux_grid_error=fp_flux_grid_error,
                             target_regions=self.target_regions,
                             max_iter=self.max_iter,
                             var_threshold=self.var_threshold,
@@ -184,6 +186,5 @@ class BasisFunctions:
                                    max_iter=self.max_iter,
                                    )
             bf_bucket, bf_grid = bf_setup.run()
-
 
         return bf_grid                  
