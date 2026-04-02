@@ -42,7 +42,8 @@ class BasisFunctions:
     def __init__(self, 
                  fp_flux_grid: xr.DataArray,
                  bf_algorithm: str,
-                 model_domain: str,
+                 data_mask: np.ndarray=None,
+                 country_masking: bool=True,
                  fp_flux_grid_error: xr.DataArray=None,
                  target_regions: int=50,
                  max_iter: int=1000,
@@ -60,11 +61,11 @@ class BasisFunctions:
         - bf_algorithm (str):
             Basis function algorithm. 
             Select from 'regional_sum' or 'iwasp'.
-        - model_domain (str):
-            Model domain name (usually specified by footprint domain)
-            e.g., 'EASTASIA', 'EUROPE', 
-            Used for selecting appropriate files for post-processing 
-            spatial masking.
+        - data_mask (np.ndarray):
+            Create basis functions from a data subset
+            based on the input mask.
+            Mask should be a list of True False elements.
+            Defaults to None.
         - country_masking (bool):
             Option to apply a country mask to ensure 
             basis functions do not overlap country borders.
@@ -99,9 +100,6 @@ class BasisFunctions:
         # Target number of basis functions
         self.target_regions = target_regions
 
-        # Model domain
-        self.domain = model_domain
-
         # Basis function algorithm
         expected_alg = ["iwasp", "regional_sum"]
         if bf_algorithm.lower() not in expected_alg:
@@ -129,10 +127,43 @@ class BasisFunctions:
 
         grid = self.fp_flux_grid
 
+        if hasattr(grid, "ndim") and grid.ndim > 2:
+            if hasattr(grid, "dims"):
+                reduce_dims = grid.dims[:-2]
+                grid = grid.mean(dim=reduce_dims)
+            else:
+                grid = np.nanmean(np.asarray(grid, dtype=float), axis=tuple(range(np.ndim(grid) - 2)))
+
         # Calculate basis functions from specified algorithm
         if self.algorithm.lower() == "iwasp":
-            bf_setup = IWASP(fp_flux_grid=grid,
-                            fp_flux_grid_error=self.fp_flux_grid_error,
+            grid_arr = np.asarray(grid, dtype=float)
+            if grid_arr.ndim != 2:
+                raise ValueError(f"IWASP expects a 2D spatial grid; got shape {grid_arr.shape}")
+
+            if self.fp_flux_grid_error is None:
+                fp_flux_grid_error = np.zeros_like(grid_arr, dtype=float)
+                positive_mask = grid_arr > 0.0
+                fp_flux_grid_error[positive_mask] = 1.0 / np.sqrt(grid_arr[positive_mask])
+            else:
+                fp_flux_grid_error = self.fp_flux_grid_error
+                if hasattr(fp_flux_grid_error, "ndim") and fp_flux_grid_error.ndim > 2:
+                    if hasattr(fp_flux_grid_error, "dims"):
+                        reduce_dims = fp_flux_grid_error.dims[:-2]
+                        fp_flux_grid_error = fp_flux_grid_error.mean(dim=reduce_dims)
+                    else:
+                        fp_flux_grid_error = np.nanmean(
+                            np.asarray(fp_flux_grid_error, dtype=float),
+                            axis=tuple(range(np.ndim(fp_flux_grid_error) - 2)),
+                        )
+
+                fp_flux_grid_error = np.asarray(fp_flux_grid_error, dtype=float)
+                if fp_flux_grid_error.ndim != 2:
+                    raise ValueError(
+                        f"IWASP fp_flux_grid_error must be 2D after reduction; got shape {fp_flux_grid_error.shape}"
+                    )
+
+            bf_setup = IWASP(fp_flux_grid=grid_arr,
+                            fp_flux_grid_error=fp_flux_grid_error,
                             target_regions=self.target_regions,
                             max_iter=self.max_iter,
                             var_threshold=self.var_threshold,

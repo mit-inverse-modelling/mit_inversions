@@ -7,7 +7,21 @@ name = "mit-inversions"
 version = "0.1.0"
 description = "MIT inversions analysis package"
 requires-python = ">=3.8"
-dependencies = []
+dependencies = [
+    "numpy",
+    "pandas",
+    "xarray",
+    "geopandas",
+    "shapely",
+    "pint",
+    "pint-xarray",
+    "scitools-iris",
+    "scipy",
+    "scikit-image",
+    "scikit-learn",
+    "arviz",
+    "pymc",
+]
 
 [tool.setuptools]
 packages = ["mit_inversions", "mit_inversions.data", "mit_inversions.readers", "mit_inversions.emissions"]
