@@ -4,4 +4,17 @@ Version: 0.1.0
 Summary: MIT inversions analysis package
 Requires-Python: >=3.8
 License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: xarray
+Requires-Dist: geopandas
+Requires-Dist: shapely
+Requires-Dist: pint
+Requires-Dist: pint-xarray
+Requires-Dist: scitools-iris
+Requires-Dist: scipy
+Requires-Dist: scikit-image
+Requires-Dist: scikit-learn
+Requires-Dist: arviz
+Requires-Dist: pymc
 Dynamic: license-file

@@ -3,7 +3,6 @@ import warnings
 
 import pymc as pm
 import arviz as az
-# from geoschem.inversion.mcmc_utils import mcmc_diagnostics, mcmc_post_process
 
     
 
@@ -210,6 +209,10 @@ def hbmcmc_inversion(H, y, R_prior, x_prior_builder,
                      n_chains=4,
                      #samplers = {"NUTS":["x_prior"], "Slice":["R_prior"]},
                      target_accept=0.9,
+                     nuts_sampler="pymc",
+                     nuts_sampler_kwargs=None,
+                     progressbar=True,
+                     cores=None,
                      return_trace=False,
                      random_seed=None,
                      use_mvnormal_if_matrix=True):
@@ -293,6 +296,22 @@ def hbmcmc_inversion(H, y, R_prior, x_prior_builder,
     target_accept : float
         Target acceptance probability for NUTS.
 
+    nuts_sampler : str
+        Which NUTS implementation to use. One of
+        ``"pymc"``, ``"nutpie"``, ``"blackjax"``, or ``"numpyro"``.
+        The default ``"pymc"`` preserves the existing behavior.
+
+    nuts_sampler_kwargs : dict or None
+        Extra keyword arguments forwarded to the external NUTS backend when
+        ``nuts_sampler`` is not ``"pymc"``.
+
+    progressbar : bool
+        Whether to display the PyMC sampling progress bar.
+
+    cores : int or None
+        Number of worker processes used by ``pm.sample``. If None, defaults to
+        ``n_chains``.
+
     return_trace : bool
         If True, also return the PyMC model and variable handles.
 
@@ -354,6 +373,23 @@ def hbmcmc_inversion(H, y, R_prior, x_prior_builder,
         raise ValueError("n_chains must be > 0")
     if not (0 < target_accept < 1):
         raise ValueError("target_accept must be in (0,1)")
+    valid_nuts_samplers = {"pymc", "nutpie", "blackjax", "numpyro"}
+    if nuts_sampler not in valid_nuts_samplers:
+        raise ValueError(
+            f"nuts_sampler must be one of {sorted(valid_nuts_samplers)}, got {nuts_sampler!r}"
+        )
+    if nuts_sampler_kwargs is None:
+        nuts_sampler_kwargs = {}
+    elif not isinstance(nuts_sampler_kwargs, dict):
+        raise TypeError("nuts_sampler_kwargs must be a dict or None")
+    if not isinstance(progressbar, bool):
+        raise TypeError("progressbar must be a bool")
+    if cores is None:
+        cores = n_chains
+    else:
+        cores = int(cores)
+        if cores <= 0:
+            raise ValueError("cores must be > 0")
 
     
     # ------------------------------------------------------------------
@@ -500,19 +536,42 @@ def hbmcmc_inversion(H, y, R_prior, x_prior_builder,
         if not steps:
             raise ValueError("No valid step methods were created.")
 
+        use_external_nuts = nuts_sampler != "pymc"
+        if use_external_nuts and samplers["Slice"]:
+            raise ValueError(
+                "External nuts_sampler backends require all sampled variables "
+                "to be handled by NUTS only; found Slice-assigned variables."
+            )
+        if use_external_nuts and not samplers["NUTS"]:
+            raise ValueError(
+                "External nuts_sampler backends require at least one NUTS-sampled variable."
+            )
+
         # ------------------------------------------------------------------
         # 6) Sampling
         # ------------------------------------------------------------------
-        idata = pm.sample(
+        print(
+            f"Starting MCMC sampling: chains={n_chains}, draws={n_samples}, "
+            f"tune={n_tune}, cores={cores}, progressbar={progressbar}, "
+            f"nuts_sampler={nuts_sampler}"
+        )
+        sample_kwargs = dict(
             draws=n_samples,
             tune=n_tune,
             chains=n_chains,
-            step=steps,
             random_seed=random_seed,
-            cores=n_chains,
+            cores=cores,
             return_inferencedata=True,
-            progressbar=True,
+            progressbar=progressbar,
         )
+
+        if use_external_nuts:
+            sample_kwargs["nuts_sampler"] = nuts_sampler
+            sample_kwargs["nuts_sampler_kwargs"] = nuts_sampler_kwargs
+            idata = pm.sample(**sample_kwargs)
+        else:
+            sample_kwargs["step"] = steps
+            idata = pm.sample(**sample_kwargs)
 
     # ------------------------------------------------------------------
     # 7) Return
