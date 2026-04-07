@@ -20,46 +20,65 @@ from mit_inversions.model_error_methods.model_error import ModelError
 from mit_inversions.sensitivity import inversion_grid_sensitivity
 
 def artemis(data_dict_inputs: dict):
-    """
-    ------------------------ ARTEMIS ------------------------
-    Atmospheric Regional Trace gas Emissions Modeling Inverse System (ARTEMIS)
-    is a regional inversion framework that uses atmospheric observations to 
-    infer surface fluxes of greenhouse gases through Bayesian modeling techniques.
+   """
+   ------------------------ ARTEMIS ------------------------
+   Atmospheric Regional Trace gas Emissions Modeling Inverse System (ARTEMIS)
+   is a regional inversion framework that uses atmospheric observations to 
+   infer surface fluxes of greenhouse gases through Bayesian modeling techniques.
 
-    This function implements the ARTEMIS framework by performing the following steps:
-    1. Forward Simulation: It creates a forward simulation of atmospheric transport
-       based on the input data, which includes meteorological fields, emission inventories,
-       and observation data. This step generates simulated observations based on the current 
-       model parameters.
+   This function implements the ARTEMIS framework by performing the following steps:
+   1. Forward Simulation: It creates a forward simulation of atmospheric transport
+   based on the input data, which includes meteorological fields, emission inventories,
+   and observation data. This step generates simulated observations based on the current 
+   model parameters.
 
-    2. Model Error Calculation: It calculates the model error by comparing the simulated 
-    observations with the actual observations. This step uses a specified model error method 
-    to quantify the discrepancies between the model predictions and the observed data, which 
-    is crucial for improving the accuracy of the flux estimates. The output of this function 
-    includes the model data dictionary, which contains the results of the forward simulation 
-    and model error calculations, and the flux grid prior, which provides the prior information 
-    on surface fluxes used in the inversion process.
+   2. Model Error Calculation: It calculates the model error by comparing the simulated 
+   observations with the actual observations. This step uses a specified model error method 
+   to quantify the discrepancies between the model predictions and the observed data, which 
+   is crucial for improving the accuracy of the flux estimates. The output of this function 
+   includes the model data dictionary, which contains the results of the forward simulation 
+   and model error calculations, and the flux grid prior, which provides the prior information 
+   on surface fluxes used in the inversion process.
 
-    3. Basis Functions and Regularization: It applies basis functions to represent the spatial 
-    and temporal variability of surface fluxes, and incorporates regularization techniques to 
-    stabilize the inversion process and prevent overfitting to noisy observations.
+   3. Basis Functions and Regularization: It applies basis functions to represent the spatial 
+   and temporal variability of surface fluxes, and incorporates regularization techniques to 
+   stabilize the inversion process and prevent overfitting to noisy observations.
 
-    Parameters:
-    - data_dict_inputs (dict): A dictionary containing all necessary input data for the ARTEMIS.
-    """
+   Parameters:
+   - data_dict_inputs (dict): A dictionary containing all necessary input data for the ARTEMIS.
+   """
 
-    # Create forward simulation - observation data object
-    model_obs_dict, flux_grid_prior = forward_simulation(data_dict_inputs)
+   # Create forward simulation - observation data object
+   model_obs_dict, flux_grid_prior = forward_simulation(data_dict_inputs)
 
-    # Calculate model error
-    model_data_dict = ModelError(model_obs_dict, 
-                                 model_error_method=data_dict_inputs['model_error_method'],
-                                 ).calculate()
+   # Calculate model error
+   model_data_dict = ModelError(model_obs_dict, 
+                                model_error_method=data_dict_inputs['model_error_method'],
+                                ).calculate()
+      
+   # Basis functions and mapping regions to flux-footprint grid
+   fp_sens_dict_out = inversion_grid_sensitivity(data_dict_inputs, model_data_dict)
+
+   # Get list of sites and an example site for indexing
+   sites_list = [key for key in fp_sens_dict_out.keys() if "." not in key]
+   site_eg = sites_list[0]
+
+   # Create basis function grid for mapping to flux grid 
+   bf_grid_stack = fp_sens_dict_out['.basis_function_grid'].stack(space=('latitude', 'longitude')).data
+   basis_function_matrix = np.zeros((len(bf_grid_stack), np.nanmax(bf_grid_stack)+1))
+   for i in range(np.nanmax(bf_grid_stack)+1):
+       basis_function_matrix[:, i] = (bf_grid_stack == i).astype(int) * 1
+
+   # Map flux grid prior to basis function grid
+   flux_grid_prior_sector_dict = {}
+   for si, flux_sector in enumerate(fp_sens_dict_out[site_eg]['flux_sector'].values):
+      flux_grid_prior_s = flux_grid_prior['flux'].sel(flux_sector=flux_sector).stack(space=('latitude', 'longitude')).data
     
-    # Basis functions and mapping regions to flux-footprint grid
-    fp_sens_dict_out = inversion_grid_sensitivity(data_dict_inputs, model_data_dict)
-    
-    
+      flux_grid_prior_s_reshape = np.reshape(flux_grid_prior_s, (1, len(flux_grid_prior_s)))
+      flux_grid_prior_region = flux_grid_prior_s_reshape @ basis_function_matrix
+      flux_grid_prior_sector_dict[flux_sector] = flux_grid_prior_region
 
 
-    return model_data_dict, flux_grid_prior
+
+
+   return model_data_dict, flux_grid_prior

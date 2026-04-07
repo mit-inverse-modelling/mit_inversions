@@ -3,7 +3,7 @@ import warnings
 
 import pymc as pm
 import arviz as az
-from geoschem.inversion.mcmc_utils import mcmc_diagnostics, mcmc_post_process
+# from geoschem.inversion.mcmc_utils import mcmc_diagnostics, mcmc_post_process
 
     
 

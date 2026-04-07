@@ -43,7 +43,7 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
         The updated model data dictionary with H matrix information included and the basis function grid.
     """
 
-    # Prepare mean footprint-flux grid for basis function calculation
+    # Calculate mean footprint-flux grid for basis function calculation
     for i, site in enumerate(model_data_dict.keys()):
         if i == 0:
             fp_flux_grid_mean = model_data_dict[site]['fp_flux_grid'].mean(dim=('flux_sector', 'time'))
@@ -53,7 +53,6 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
     # Mean footprint-flux grid across all sites for basis function calculation
     fp_flux_grid_mean /= len(model_data_dict.keys())
 
-    
     # Check basis function input arguments and set defaults if not specified
     basis_function_args = data_dict_inputs['basis_functions']
     
@@ -132,7 +131,6 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
     bf_grid_stack = ds_basis_function['basis_function_grid'].stack(space=('latitude', 'longitude'))
 
     nbasis_functions = int(np.nanmax(bf_grid_stack.values) +1)
-    print(f"Number of basis functions: {nbasis_functions}")
 
     basis_function_matrix = np.zeros((len(bf_grid_stack.values), nbasis_functions))
     for i in range(nbasis_functions):

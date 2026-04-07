@@ -103,6 +103,6 @@ class ModelError():
                 model_error = self.pollution_event_minmodel_error(obs, sim)
             
 
-            self.model_data_dict[site]['model_error'] = xr.DataArray(model_error, coords=obs.coords)
+            self.model_data_dict[site]['mf_model_error'] = xr.DataArray(model_error, coords=obs.coords)
         
         return self.model_data_dict
