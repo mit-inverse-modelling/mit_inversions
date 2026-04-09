@@ -535,9 +535,8 @@ def postprocess_y_outputs(
 ):
     """Build and plot prior/posterior Y diagnostics from saved inversion outputs.
 
-    In increment mode, a saved `prior_y` column in `obs_used` is treated as the
-    authoritative prior Y. If that column is absent, prior Y falls back to
-    `H @ x_prior`, while posterior Y remains `prior_y + H @ delta_x`.
+    In increment mode, `obs_used` must already contain the authoritative
+    observation-space prior Y. Posterior Y remains `prior_y + H @ delta_x`.
     """
     paths = _ensure_output_dirs(output_path)
     metadata_path = None
@@ -980,22 +979,13 @@ def _build_y_post_results(
 
     state_mode = str(state_mode).lower()
     if state_mode == "increment":
-        if prior_y_column in obs_df.columns:
-            prior_y = pd.to_numeric(obs_df[prior_y_column], errors="coerce")
-            if prior_y.isna().any():
-                raise ValueError(f"obs_used column {prior_y_column!r} contains NaN values")
-        else:
-            x_prior = _extract_state_vector(
-                results_df,
-                column=prior_state_column,
-                candidates=("prior", "xa"),
-                column_kind="prior",
-            ).loc[H_df.columns]
-            prior_y = pd.Series(
-                H_df.values.astype(float) @ x_prior.values.astype(float),
-                index=obs_df.index,
-                name="prior_y",
+        if prior_y_column not in obs_df.columns:
+            raise ValueError(
+                f"Increment-mode Y post-processing requires obs_used column {prior_y_column!r}"
             )
+        prior_y = pd.to_numeric(obs_df[prior_y_column], errors="coerce")
+        if prior_y.isna().any():
+            raise ValueError(f"obs_used column {prior_y_column!r} contains NaN values")
         x_post = _extract_state_vector(
             results_df,
             column=posterior_state_column,
