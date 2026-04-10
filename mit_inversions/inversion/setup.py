@@ -55,7 +55,7 @@ class InversionSetupRun:
         bf_grid_stack = self.fp_sens_dict_out['.basis_function_grid'].stack(space=('latitude', 'longitude')).data
         basis_function_matrix = np.zeros((len(bf_grid_stack), np.nanmax(bf_grid_stack)+1))
         for i in range(np.nanmax(bf_grid_stack)+1):
-            basis_function_matrix[:, i] = (bf_grid_stack == i).astype(int) * 1
+            basis_function_matrix[:, i] = (bf_grid_stack == i).astype(int)
 
         # Map a priori flux grid to basis function regions
         flux_grid_prior_sectors_bf = []
@@ -120,7 +120,7 @@ class InversionSetupRun:
                 y_err = np.sqrt(
                     self.fp_sens_dict_out[site]['mf_variability'].values ** 2 
                     + self.fp_sens_dict_out[site]['mf_repeatability'].values ** 2  
-                    # + self.fp_sens_dict_out[site]['mf_model_error'].values ** 2
+                    + self.fp_sens_dict_out[site]['mf_model_error'].values ** 2
                     ) 
                 
                 if i == 0:
@@ -143,7 +143,7 @@ class InversionSetupRun:
 
             # a priori uncertainties (P matrix)
             # NB. Uncertainties for the fluxes are absolute values, while for boundary conditions they are relative uncertainties.
-            xa_error = np.diag(xa * 500. + 1) 
+            xa_error = np.diag(xa * 100. + 1) 
             
             for i in range(4):
                 xa_error[-i,-i]=0.001
