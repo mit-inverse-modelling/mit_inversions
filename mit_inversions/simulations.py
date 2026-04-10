@@ -12,7 +12,7 @@ from .readers.observations import Observations
 from .readers.footprint_flux_reader import FootprintFlux
 # from .readers.data_filters import DataFiltering
 
-def data_merge(observations, fp_flux_grid, mf_sim)->dict:
+def data_merge(observations, fp_flux_grid, mf_sim, fps)->dict:
     """
     Merge observations and footprint flux data into a single dataset.
     """
@@ -23,10 +23,18 @@ def data_merge(observations, fp_flux_grid, mf_sim)->dict:
         lon_dim = fp_flux_grid["longitude"].values
         time_dim = observations[site]["time"].values
         flux_dim = mf_sim["flux_sector"].values
+        height_dim = fps['height'].values
         
         # Variables
         mf_sim_aligned = mf_sim.sel({"site": site}).reindex({"time": observations[site]['time']}, tolerance="1H", method="nearest").dropna("time")
         fp_flux_grid_aligned = fp_flux_grid.sel({"site": site}).reindex({"time": observations[site]['time']}, tolerance="0.5H", method="nearest").dropna("time")
+        
+        p_loc_n_aligned = fps['particle_locations_n'].sel({"site": site}).reindex({"time": observations[site]['time']}, tolerance="0.5H", method="nearest").dropna("time")
+        p_loc_s_aligned = fps['particle_locations_s'].sel({"site": site}).reindex({"time": observations[site]['time']}, tolerance="0.5H", method="nearest").dropna("time")
+        p_loc_e_aligned = fps['particle_locations_e'].sel({"site": site}).reindex({"time": observations[site]['time']}, tolerance="0.5H", method="nearest").dropna("time")
+        p_loc_w_aligned = fps['particle_locations_w'].sel({"site": site}).reindex({"time": observations[site]['time']}, tolerance="0.5H", method="nearest").dropna("time")
+
+        srr_aligned = fps['srr'].sel({"site": site}).reindex({"time": observations[site]['time']}, tolerance="0.5H", method="nearest").dropna("time")
         
         if len(mf_sim_aligned["time"]) > len(observations[site]["time"]):
             raise ValueError(f"More aligned time points in mf_sim than observations for site {site}. Check alignment.")
@@ -38,12 +46,19 @@ def data_merge(observations, fp_flux_grid, mf_sim)->dict:
                 "mf_repeatability": (("time",), observations[site]["mf_repeatability"].values),
                 "mf_sim": (("flux_sector", "time",), mf_sim_aligned.values),
                 "fp_flux_grid": (("flux_sector", "time", "latitude", "longitude"), fp_flux_grid_aligned.values),
+                "srr": (("time", "latitude", "longitude"), srr_aligned.values),
+                "particle_locations_n": (("time", "height", "longitude"), p_loc_n_aligned.values),
+                "particle_locations_s": (("time", "height", "longitude"), p_loc_s_aligned.values),
+                "particle_locations_e": (("time", "height", "latitude"), p_loc_e_aligned.values),
+                "particle_locations_w": (("time", "height", "latitude"), p_loc_w_aligned.values),
             },
             coords={
                 "time": time_dim,
                 "latitude": lat_dim,
                 "longitude": lon_dim,
                 "flux_sector": flux_dim,
+                "height": height_dim,
+
             }
         )
     return data_aligned_dict
@@ -66,6 +81,7 @@ def forward_simulation(data_dict: dict)->dict:
     (fp_flux_grid,
      mf_sim,
      flux_grid,
+     fps,
      ) = FootprintFlux(start_date=data_dict['start_date'],
                        end_date=data_dict['end_date'],
                        sites=data_dict['sites'],
@@ -79,7 +95,7 @@ def forward_simulation(data_dict: dict)->dict:
                        ).align_flux_footprint()
     
     # Align forward simulations to observations
-    data_aligned_dict = data_merge(observations, fp_flux_grid, mf_sim)
+    data_aligned_dict = data_merge(observations, fp_flux_grid, mf_sim, fps)
 
     # DATA FILTERING (optional)
 
