@@ -64,7 +64,7 @@ class ModelError():
 
         # Background variability error
         var_bg = ((1/N) * np.sqrt(np.sum(np.array(bg_stds)**2)))**2 + ((1/N) * np.sum(np.array(bg_mu)-np.mean(bg_mu)))**2
-        sigma_bg = np.sqrt(var_bg)**2
+        sigma_bg = np.sqrt(var_bg)
 
 
         # Pollution event error
