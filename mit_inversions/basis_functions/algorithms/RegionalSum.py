@@ -14,7 +14,7 @@ class RegionalSum:
     def __init__(self,
                  fp_flux_grid: np.ndarray,
                  target_regions: int=40,
-                 max_iter: int=2000,
+                 max_iter: int=1000,
                  ):
         """
         Initialize the RegionalSum algorithm with the footprint-flux grid 
@@ -137,10 +137,12 @@ class RegionalSum:
                 
                 # If too many regions -> bucket too small -> increase bucket
                 if current_nregion > self.target_regions + current_tol:
-                    current_bucket *= 1.01
+                    # current_bucket *= 1.01
+                    current_bucket *= 1.05
                 # If too few regions -> bucket too large -> decrease bucket
                 else:
-                    current_bucket *= 0.99
+                    # current_bucket *= 0.99
+                    current_bucket *= 0.95
             current_tol += 1
 
         raise BufferError(f"Failed to converge for all tolerances from {tol} to {current_tol}!")
