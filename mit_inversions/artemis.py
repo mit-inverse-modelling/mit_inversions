@@ -15,9 +15,12 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+
 from mit_inversions.simulations import forward_simulation
-from mit_inversions.model_error_methods.model_error import ModelError
+from mit_inversions.inversion.setup import InversionSetupRun
 from mit_inversions.sensitivity import inversion_grid_sensitivity
+from mit_inversions.model_error_methods.model_error import ModelError
+from mit_inversions.readers.boundary_conditions import BoundaryConditions
 
 def artemis(data_dict_inputs: dict):
    """
@@ -59,26 +62,15 @@ def artemis(data_dict_inputs: dict):
    # Basis functions and mapping regions to flux-footprint grid
    fp_sens_dict_out = inversion_grid_sensitivity(data_dict_inputs, model_data_dict)
 
-   # Get list of sites and an example site for indexing
-   sites_list = [key for key in fp_sens_dict_out.keys() if "." not in key]
-   site_eg = sites_list[0]
+   # Boundary conditions - calculated from 12-box model
+   model_data_dict_bc = BoundaryConditions(species=data_dict_inputs["species"],
+                                           fp_obj=fp_sens_dict_out
+                                           ).get_sensitivity_matrix()
 
-   # Create basis function grid for mapping to flux grid 
-   bf_grid_stack = fp_sens_dict_out['.basis_function_grid'].stack(space=('latitude', 'longitude')).data
-   basis_function_matrix = np.zeros((len(bf_grid_stack), np.nanmax(bf_grid_stack)+1))
-   for i in range(np.nanmax(bf_grid_stack)+1):
-       basis_function_matrix[:, i] = (bf_grid_stack == i).astype(int) * 1
-
-   # Map flux grid prior to basis function grid
-   flux_grid_prior_sector_dict = {}
-   for si, flux_sector in enumerate(fp_sens_dict_out[site_eg]['flux_sector'].values):
-      flux_grid_prior_s = flux_grid_prior['flux'].sel(flux_sector=flux_sector).stack(space=('latitude', 'longitude')).data
-    
-      flux_grid_prior_s_reshape = np.reshape(flux_grid_prior_s, (1, len(flux_grid_prior_s)))
-      flux_grid_prior_region = flux_grid_prior_s_reshape @ basis_function_matrix
-      flux_grid_prior_sector_dict[flux_sector] = flux_grid_prior_region
-
-
-
-
-   return model_data_dict, flux_grid_prior
+   # Prepare data for inversion and run inversion
+   inversion_data_out  = InversionSetupRun(model_data_dict=fp_sens_dict_out,
+                                           bc_dict=model_data_dict_bc,
+                                           flux_grid=flux_grid_prior,
+                                           inverse_method=data_dict_inputs['inversion']['inverse_method'],
+                                           ).run()
+   
