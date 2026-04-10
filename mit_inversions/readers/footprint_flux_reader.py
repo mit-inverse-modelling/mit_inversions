@@ -1,4 +1,14 @@
 # footprint_flux_reader.py
+# Created: 16 March 2026
+# Author: Eric Saboya
+# Copyright (c) 2026. All rights reserved.
+# License: MIT License
+# 
+# Description: 
+#   This module retrieve and processes footprint and flux data for specified sites, date ranges, and
+#   flux/lpdm models. It includes the FootprintFlux class, which has methods for validating inputs,
+#   loading footprint and flux data, regridding flux data to the footprint grid, and aligning the
+#   data for use in inverse modeling and forward simulations. 
 
 import glob
 import re
@@ -382,17 +392,24 @@ class FootprintFlux():
         for i, _flux_model in enumerate(self.flux_model):
             _flux_model_version = self.flux_model_version[i]
 
-            flux_file_path = f"{self.flux_dir}/{_flux_model}{_flux_model_version}/{self._species_string_format(format='upper_lower')}/*{_flux_model}_2024_GHG_{self._species_string_format(format='upper_lower')}_{self.start_date[0:4]}*"
+            flux_file_path = f"{self.flux_dir}/{_flux_model}{_flux_model_version}/{self._species_string_format(format='upper_lower')}/*{_flux_model}*{self._species_string_format(format='upper_lower')}_{self.start_date[0:4]}*"
             flux_files = glob.glob(flux_file_path)
         
             if flux_files:
                 flux_file = flux_files[0]
                 if len(flux_files) > 1:
                     print(f"Warning: Multiple flux files found for {self.species} in {self.start_date[0:4]}. Using {flux_file}")
+            
             else:
-                print(f"No flux file found for {self.species} in {self.start_date[0:4]} with model {_flux_model} version {_flux_model_version}")
-                print(f"Search string: {flux_file_path}")
-                return None
+                flux_file_path = f"{self.flux_dir}/{_flux_model}{_flux_model_version}/{self._species_string_format(format='upper_lower')}/*{self._species_string_format(format='upper_lower')}_{self.start_date[0:4]}*"
+                flux_files = glob.glob(flux_file_path)
+
+                if flux_files:
+                    flux_file = flux_files[0]
+                else:
+                    print(f"No flux file found for {self.species} in {self.start_date[0:4]} with model {_flux_model} version {_flux_model_version}")
+                    print(f"Search string: {flux_file_path}")
+                    return None
 
             try:
                 self.fluxes[_flux_model] = xr.open_dataset(flux_file)
@@ -478,7 +495,11 @@ class FootprintFlux():
             for _coord in fps_outs["srr"].coords:
                 fps_outs["srr"][_coord].attrs.pop("units", None)
 
-            fps_dict[site]["srr"] = fps_outs["srr"].pint.quantify(ureg.parse_units(iunit))    
+            fps_dict[site]["srr"] = fps_outs["srr"].pint.quantify(ureg.parse_units(iunit))
+            fps_dict[site]["particle_locations_n"] = fps_outs["particle_locations_n"]
+            fps_dict[site]["particle_locations_s"] = fps_outs["particle_locations_s"]
+            fps_dict[site]["particle_locations_e"] = fps_outs["particle_locations_e"]
+            fps_dict[site]["particle_locations_w"] = fps_outs["particle_locations_w"]
 
         # Load flux data and quantify units
         print("Loading flux data ...")
@@ -518,10 +539,12 @@ class FootprintFlux():
         print("Combining flux and footprint data ...")
         fpXflux = []
         sites_dim = []
+        fp_out = []
 
         for site in fps_dict.keys():
             fp_site = fps_dict[site]['srr']
-            
+            fp_out.append(fps_dict[site])
+
             site_fp_x_flux = []
 
             for _flux_model in flux_data.keys():
@@ -534,5 +557,6 @@ class FootprintFlux():
         
         self.fpXflux = xr.concat(fpXflux, dim="site").assign_coords(site=sites_dim)
         self.mf_sim = self.fpXflux.sum(dim=["latitude", "longitude"])
+        self.fps = xr.concat(fp_out, dim="site").assign_coords(site=sites_dim)
 
-        return self.fpXflux, self.mf_sim, self.fluxes_regridded
+        return self.fpXflux, self.mf_sim, self.fluxes_regridded, self.fps
