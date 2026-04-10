@@ -35,6 +35,7 @@ __all__ = [
     "compute_annual_totals",
     "postprocess_analytical_outputs",
     "postprocess_mcmc_outputs",
+    "postprocess_y_outputs",
     "plot_state_outputs",
     "plot_analytical_diagnostics",
 ]
@@ -521,6 +522,70 @@ def postprocess_mcmc_outputs(
         "metadata": metadata,
     }
 
+
+def postprocess_y_outputs(
+    output_path,
+    *,
+    state_mode="increment",
+    posterior_state_column=None,
+    prior_state_column=None,
+    state_results_filename="state_results_raw.csv",
+    obs_column="obs_y",
+    prior_y_column="prior_y",
+):
+    """Build and plot prior/posterior Y diagnostics from saved inversion outputs.
+
+    In increment mode, `obs_used` must already contain the authoritative
+    observation-space prior Y. Posterior Y remains `prior_y + H @ delta_x`.
+    """
+    paths = _ensure_output_dirs(output_path)
+    metadata_path = None
+    for filename in ("mcmc_run_metadata.json", "analytical_run_metadata.json"):
+        candidate = paths["results"] / filename
+        if candidate.exists():
+            metadata_path = candidate
+            break
+    if metadata_path is None:
+        raise ValueError("Saved outputs are missing run metadata")
+
+    metadata = _read_metadata(metadata_path)
+    input_files = metadata.get("files", {}).get("inputs", {})
+    if not input_files:
+        raise ValueError(f"Metadata file {metadata_path.name} does not contain input file mappings")
+
+    H_used = _read_saved_table(paths, input_files, "H_used")
+    obs_used = _read_saved_table(paths, input_files, "obs_used")
+    if H_used is None:
+        raise ValueError("Saved outputs are missing H_used")
+    if obs_used is None:
+        raise ValueError("Saved outputs are missing obs_used")
+
+    state_results_path = paths["tables"] / state_results_filename
+    if not state_results_path.exists():
+        raise ValueError(f"Saved outputs are missing {state_results_filename!r}")
+    state_results = pd.read_csv(state_results_path, index_col=0)
+
+    y_results = _build_y_post_results(
+        H_used,
+        obs_used,
+        state_results,
+        state_mode=state_mode,
+        posterior_state_column=posterior_state_column,
+        prior_state_column=prior_state_column,
+        obs_column=obs_column,
+        prior_y_column=prior_y_column,
+    )
+    y_results.to_csv(paths["tables"] / "y_post_results.csv")
+    _plot_y_post_results(output_path, y_results)
+
+    return {
+        "y_results": y_results,
+        "metadata": metadata,
+        "H_used": H_used,
+        "obs_used": obs_used,
+        "state_results": state_results,
+    }
+
 # Internal helper: MCMC diagnostics and minimal summaries
 def _mcmc_diagnostics(
     idata,
@@ -870,6 +935,186 @@ def _build_interpreted_state_results(
     if posterior_sigma is not None:
         results["state_posterior_sigma"] = pd.Series(posterior_sigma, index=state_index).astype(float).values
     return results
+
+
+def _build_y_post_results(
+    H_used,
+    obs_used,
+    state_results,
+    *,
+    state_mode="increment",
+    posterior_state_column=None,
+    prior_state_column=None,
+    obs_column="obs_y",
+    prior_y_column="prior_y",
+):
+    H_df = _coerce_dataframe(H_used)
+    obs_df = _coerce_dataframe(obs_used)
+    results_df = _coerce_dataframe(state_results)
+
+    if H_df is None:
+        raise ValueError("H_used is required")
+    if obs_df is None:
+        raise ValueError("obs_used is required")
+    if results_df is None:
+        raise ValueError("state_results is required")
+    if obs_column not in obs_df.columns:
+        raise ValueError(f"obs_used must include column {obs_column!r}")
+
+    H_df = H_df.copy()
+    obs_df = obs_df.copy()
+    results_df = results_df.copy()
+
+    obs_df.index = obs_df.index.map(str)
+    H_df.index = H_df.index.map(str)
+    H_df.columns = pd.Index([str(v) for v in H_df.columns], name="state")
+    results_df.index = pd.Index([str(v) for v in results_df.index], name="state")
+
+    if len(H_df.index) != len(obs_df.index) or not H_df.index.equals(obs_df.index):
+        raise ValueError("H_used and obs_used must share the same ordered observation index")
+
+    obs_y = pd.to_numeric(obs_df[obs_column], errors="coerce")
+    if obs_y.isna().any():
+        raise ValueError(f"obs_used column {obs_column!r} contains NaN values")
+
+    state_mode = str(state_mode).lower()
+    if state_mode == "increment":
+        if prior_y_column not in obs_df.columns:
+            raise ValueError(
+                f"Increment-mode Y post-processing requires obs_used column {prior_y_column!r}"
+            )
+        prior_y = pd.to_numeric(obs_df[prior_y_column], errors="coerce")
+        if prior_y.isna().any():
+            raise ValueError(f"obs_used column {prior_y_column!r} contains NaN values")
+        x_post = _extract_state_vector(
+            results_df,
+            column=posterior_state_column,
+            candidates=("xhat", "x_mean", "delta_x"),
+            column_kind="posterior",
+        ).loc[H_df.columns]
+        posterior_increment_y = pd.Series(
+            H_df.values.astype(float) @ x_post.values.astype(float),
+            index=obs_df.index,
+            name="posterior_increment_y",
+        )
+        posterior_y = prior_y + posterior_increment_y
+    elif state_mode == "absolute":
+        x_prior = _extract_state_vector(
+            results_df,
+            column=prior_state_column,
+            candidates=("prior", "xa"),
+            column_kind="prior",
+        ).loc[H_df.columns]
+        x_post = _extract_state_vector(
+            results_df,
+            column=posterior_state_column,
+            candidates=("posterior", "xhat", "x_mean"),
+            column_kind="posterior",
+        ).loc[H_df.columns]
+        prior_y = pd.Series(
+            H_df.values.astype(float) @ x_prior.values.astype(float),
+            index=obs_df.index,
+            name="prior_y",
+        )
+        posterior_increment_y = pd.Series(np.nan, index=obs_df.index, name="posterior_increment_y")
+        posterior_y = pd.Series(
+            H_df.values.astype(float) @ x_post.values.astype(float),
+            index=obs_df.index,
+            name="posterior_y",
+        )
+    else:
+        raise ValueError("state_mode must be 'increment' or 'absolute'")
+
+    out = pd.DataFrame(index=obs_df.index)
+    out["obs_y"] = obs_y.values
+    out["prior_y"] = prior_y.values
+    out["posterior_y"] = posterior_y.values
+    out["posterior_increment_y"] = posterior_increment_y.values
+    out["prior_residual"] = out["obs_y"] - out["prior_y"]
+    out["posterior_residual"] = out["obs_y"] - out["posterior_y"]
+
+    for col in ("site", "time"):
+        if col in obs_df.columns:
+            out[col] = obs_df[col].values
+
+    return out
+
+
+def _plot_y_post_results(output_path, y_results):
+    paths = _ensure_output_dirs(output_path)
+    y_df = _coerce_dataframe(y_results)
+    if y_df is None:
+        raise ValueError("y_results is required")
+
+    required = {"obs_y", "prior_y", "posterior_y"}
+    missing = required.difference(y_df.columns)
+    if missing:
+        raise ValueError(f"y_results is missing required columns: {sorted(missing)}")
+
+    if "site" in y_df.columns:
+        site_names = list(pd.Index(y_df["site"].astype(str)).unique())
+        fig, axes = plt.subplots(len(site_names), 1, figsize=(12, 4 * len(site_names)), sharex=True)
+        if len(site_names) == 1:
+            axes = [axes]
+        for ax, site in zip(axes, site_names):
+            site_df = y_df.loc[y_df["site"].astype(str) == site]
+            if "time" in site_df.columns:
+                x = pd.to_datetime(site_df["time"])
+            else:
+                x = np.arange(len(site_df))
+            ax.plot(x, site_df["obs_y"], color="black", linewidth=1.8, label="Obs")
+            ax.plot(x, site_df["prior_y"], color="tab:blue", linewidth=1.8, linestyle="--", label="Prior Y")
+            ax.plot(x, site_df["posterior_y"], color="tab:orange", linewidth=2.0, label="Posterior Y")
+            ax.set_title(str(site))
+            ax.set_ylabel("Mole Fraction")
+            ax.grid(alpha=0.3)
+        axes[0].legend()
+        axes[-1].set_xlabel("Time")
+        fig.tight_layout()
+    else:
+        fig, ax = plt.subplots(figsize=(12, 5))
+        if "time" in y_df.columns:
+            x = pd.to_datetime(y_df["time"])
+        else:
+            x = np.arange(len(y_df))
+        ax.plot(x, y_df["obs_y"], color="black", linewidth=1.8, label="Obs")
+        ax.plot(x, y_df["prior_y"], color="tab:blue", linewidth=1.8, linestyle="--", label="Prior Y")
+        ax.plot(x, y_df["posterior_y"], color="tab:orange", linewidth=2.0, label="Posterior Y")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Mole Fraction")
+        ax.grid(alpha=0.3)
+        ax.legend()
+        fig.tight_layout()
+
+    fig.savefig(paths["figures"] / "y_post_comparison.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _extract_state_vector(state_results, *, column=None, candidates=(), column_kind="state"):
+    results_df = _coerce_dataframe(state_results)
+    if results_df is None:
+        raise ValueError("state_results is required")
+
+    results_df = results_df.copy()
+    results_df.index = pd.Index([str(v) for v in results_df.index], name="state")
+
+    if column is None:
+        for candidate in candidates:
+            if candidate in results_df.columns:
+                column = candidate
+                break
+    if column is None:
+        raise ValueError(
+            f"Could not infer {column_kind} state column. "
+            f"Pass it explicitly or provide one of {list(candidates)!r}."
+        )
+    if column not in results_df.columns:
+        raise ValueError(f"state_results does not contain column {column!r}")
+
+    series = pd.to_numeric(results_df[column], errors="coerce")
+    if series.isna().any():
+        raise ValueError(f"State column {column!r} contains NaN values")
+    return series.astype(float)
 
 
 
