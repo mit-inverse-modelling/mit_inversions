@@ -1,3 +1,9 @@
+# artemis.py
+# Created: 4 April 2026
+# Author: Luke Western
+# Copyright (c) 2026. All rights reserved.
+# License: MIT License
+
 import re
 from pathlib import Path
 import xarray as xr
@@ -16,6 +22,9 @@ class BoundaryConditions():
         self.fp_obj = fp_obj
 
     def _species_string_format(self) -> str:
+        """
+        Format the species string for use in file paths.
+        """
         if "br" in self.species:
             return self.species.upper().replace("BR", "Br")
         elif "cl" in self.species:
@@ -24,8 +33,14 @@ class BoundaryConditions():
             return re.sub(r'^[a-zA-Z]+', lambda m: m.group().upper(), self.species)
 
     @staticmethod
-    def _latitudinal_scale(latitudes: xr.DataArray, box0: float, box1: float, box2: float, box3: float) -> xr.DataArray:
-        """Return latitude-dependent scale factors for 4 semi-hemispheric bands."""
+    def _latitudinal_scale(latitudes: xr.DataArray,
+                            box0: float, 
+                            box1: float, 
+                            box2: float, 
+                            box3: float) -> xr.DataArray:
+        """
+        Return latitude-dependent scale factors for 4 semi-hemispheric bands.
+        """
         return xr.where(
             latitudes <= -30,
             box3,
@@ -37,8 +52,14 @@ class BoundaryConditions():
         )
 
     @staticmethod
-    def _band_value(latitude_value: float, box0: float, box1: float, box2: float, box3: float) -> float:
-        """Return a single box value for a given boundary latitude."""
+    def _band_value(latitude_value: float, 
+                    box0: float, 
+                    box1: float, 
+                    box2: float,
+                    box3: float) -> float:
+        """
+        Returns a single box value for a given boundary latitude.
+        """
         if latitude_value <= -30:
             return box3
         if latitude_value <= 0:
@@ -64,69 +85,71 @@ class BoundaryConditions():
             site_iter = ((str(i), site_ds) for i, site_ds in enumerate(self.fp_obj))
 
         for key, fp_obs_site in site_iter:
-            lats = fp_obs_site.latitude
-            minlat = float(lats.min())
-            maxlat = float(lats.max())
+            if "." not in key:
 
-            years = np.unique(fp_obs_site.time.dt.year.values.astype(int))
-            monthly_bcs = []
+                lats = fp_obs_site.latitude
+                minlat = float(lats.min())
+                maxlat = float(lats.max())
 
-            for year in years:
-                yind = np.floor(csv["Year"].values).astype(int) == int(year)
-                year_rows = csv.loc[yind]
+                years = np.unique(fp_obs_site.time.dt.year.values.astype(int))
+                monthly_bcs = []
 
-                if len(year_rows) < 12:
-                    raise ValueError(f"Expected 12 monthly rows for {year}, got {len(year_rows)}")
+                for year in years:
+                    yind = np.floor(csv["Year"].values).astype(int) == int(year)
+                    year_rows = csv.loc[yind]
 
-                for month_idx in range(12):
-                    month_num = month_idx + 1
-                    month_mask = (
-                        (fp_obs_site.time.dt.year == year)
-                        & (fp_obs_site.time.dt.month == month_num)
-                    )
-                    fp_obs_month = fp_obs_site.sel(time=month_mask)
+                    if len(year_rows) < 12:
+                        raise ValueError(f"Expected 12 monthly rows for {year}, got {len(year_rows)}")
 
-                    if fp_obs_month.sizes.get("time", 0) == 0:
-                        continue
+                    for month_idx in range(12):
+                        month_num = month_idx + 1
+                        month_mask = (
+                            (fp_obs_site.time.dt.year == year)
+                            & (fp_obs_site.time.dt.month == month_num)
+                        )
+                        fp_obs_month = fp_obs_site.sel(time=month_mask)
 
-                    box0 = float(year_rows[f"{var_name}_box0"].iloc[month_idx])*1e-12
-                    box1 = float(year_rows[f"{var_name}_box1"].iloc[month_idx])*1e-12
-                    box2 = float(year_rows[f"{var_name}_box2"].iloc[month_idx])*1e-12
-                    box3 = float(year_rows[f"{var_name}_box3"].iloc[month_idx])*1e-12
-                    south_value = self._band_value(minlat, box0, box1, box2, box3)
-                    north_value = self._band_value(maxlat, box0, box1, box2, box3)
+                        if fp_obs_month.sizes.get("time", 0) == 0:
+                            continue
 
-                    lat_scale = self._latitudinal_scale(lats, box0, box1, box2, box3)
+                        box0 = float(year_rows[f"{var_name}_box0"].iloc[month_idx]) * 1e-12
+                        box1 = float(year_rows[f"{var_name}_box1"].iloc[month_idx]) * 1e-12
+                        box2 = float(year_rows[f"{var_name}_box2"].iloc[month_idx]) * 1e-12
+                        box3 = float(year_rows[f"{var_name}_box3"].iloc[month_idx]) * 1e-12
+                        south_value = self._band_value(minlat, box0, box1, box2, box3)
+                        north_value = self._band_value(maxlat, box0, box1, box2, box3)
 
-                    bc_s = fp_obs_month.particle_locations_n * south_value
-                    bc_n = fp_obs_month.particle_locations_s * north_value
-                    bc_e = fp_obs_month.particle_locations_e * lat_scale
-                    bc_w = fp_obs_month.particle_locations_w * lat_scale
+                        lat_scale = self._latitudinal_scale(lats, box0, box1, box2, box3)
 
-                    bcds = xr.Dataset(
-                        data_vars={
-                            "bc_s": bc_s,
-                            "bc_n": bc_n,
-                            "bc_e": bc_e,
-                            "bc_w": bc_w,
-                        }
-                    )
-                    monthly_bcs.append(bcds)
+                        bc_s = fp_obs_month.particle_locations_s * south_value
+                        bc_n = fp_obs_month.particle_locations_n * north_value
+                        bc_e = fp_obs_month.particle_locations_e * lat_scale
+                        bc_w = fp_obs_month.particle_locations_w * lat_scale
 
-            if not monthly_bcs:
-                raise ValueError(f"No boundary-condition time slices generated for site {key}")
+                        bcds = xr.Dataset(
+                            data_vars={
+                                "bc_s": bc_s,
+                                "bc_n": bc_n,
+                                "bc_e": bc_e,
+                                "bc_w": bc_w,
+                            }
+                        )
+                        monthly_bcs.append(bcds)
 
-            site_ds = xr.concat(monthly_bcs, dim="time").sortby("time")
-            site_ds.attrs.update(
-                {
-                    "source": "AGAGE 12-box model",
-                    "species": self.species,
-                    "title": f"{self.species} mixing ratio at domain edges",
-                    "units": "ppt",
-                }
-            )
+                if not monthly_bcs:
+                    raise ValueError(f"No boundary-condition time slices generated for site {key}")
 
-            bc_dict[key] = site_ds
+                site_ds = xr.concat(monthly_bcs, dim="time").sortby("time")
+                site_ds.attrs.update(
+                    {
+                        "source": "AGAGE 12-box model",
+                        "species": self.species,
+                        "title": f"{self.species} mixing ratio at domain edges",
+                        "units": "ppt",
+                    }
+                )
+
+                bc_dict[key] = site_ds
 
         return bc_dict
     
