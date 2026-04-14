@@ -22,7 +22,6 @@ ds = generate_emissions_distribution(
     total_Gg=10.0, method="population", year=2020,
     lats=np.arange(35.0, 72.0, 0.5),
     lons=np.arange(-10.0, 40.0, 0.5),
-    res_deg=0.5,
 )
 ```
 

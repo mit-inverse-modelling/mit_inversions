@@ -105,7 +105,11 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
     if country_masking:
         print("Applying country masking to basis function grid ...")
         # Retrieve country mask for model domain 
-        country_grid = get_countries_for_grid(ds_basis_function.longitude.values, ds_basis_function.latitude.values)
+        country_grid = get_countries_for_grid(
+            ds_basis_function.longitude.values,
+            ds_basis_function.latitude.values,
+            base_data_dir=data_dict_inputs.get("base_data_dir"),
+        )
         
         # Stack basis function and country mask grids 
         country_stack = country_grid.stack(space=('latitude', 'longitude')).values

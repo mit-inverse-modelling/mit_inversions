@@ -12,7 +12,7 @@
 
 import glob
 import re
-import site
+from pathlib import Path
 import pint
 import pint_xarray
 import xarray as xr
@@ -23,7 +23,8 @@ from iris.coords import DimCoord
 from iris.cube import Cube
 from iris.analysis import AreaWeighted
 
-from ..config import data_path, get_data_path
+from ..config import get_data_path
+from ..emissions.distribution import generate_emissions_distribution
 
 class FootprintFlux():
     """
@@ -31,15 +32,14 @@ class FootprintFlux():
     sites, date ranges, and flux/lpdm models.
     """
     def __init__(self,
-                 start_date: str, 
+                 start_date: str,
                  end_date: str,
                  sites: list | str | None = None,
                  site_inlets: list | str | None = None,
                  lpdm: str | None = None,
                  met_model: str | None = None,
                  species: str | None = None,
-                 flux_model: list | str | None = None,
-                 flux_model_version: list | str | None = "v8",
+                 flux: dict | None = None,
                  base_data_dir: str = "/net/fs01/data/AGAGE",
                  ):
         """
@@ -63,11 +63,9 @@ class FootprintFlux():
         - species (str):
             The chemical species for which the flux is being calculated 
             (e.g., 'HFC-23').
-        - flux_model (list | str):
-            The name of the flux model used to calculate emissions 
-            (e.g., 'EDGAR').
-        - flux_model_version (list | str):
-            The version of the flux model (default: 'v8').
+        - flux (dict):
+            Flux configuration dictionary. Supported modes are
+            'auto_generation' and 'customized'.
         - base_data_dir (str):
             Directory to base level of where footprints and flux data are stored. 
             Defaults to /net/fs01/data/AGAGE
@@ -79,13 +77,12 @@ class FootprintFlux():
         self.lpdm = lpdm
         self.met_model = met_model
         self.species = species
-        self.flux_model = flux_model
-        self.flux_model_version = flux_model_version
+        self.flux = flux
 
         # Set data paths
         data_path_base = get_data_path(base_data_dir)
+        self.base_data_dir = str(data_path_base)
         self.fp_dir = data_path_base / "footprints"
-        self.flux_dir = data_path_base / "flux_emissions"
 
     def _check_common_inputs(self):
         """
@@ -138,25 +135,50 @@ class FootprintFlux():
         if not self.species:
             raise ValueError("species must be provided for flux operations.")
 
-        if not self.flux_model:
-            raise ValueError("flux_model must be provided for flux operations.")
+        if not isinstance(self.flux, dict):
+            raise ValueError("flux must be provided as a dictionary.")
 
-        if isinstance(self.flux_model, list):
-            self.flux_model = [str(model).upper() for model in self.flux_model]
-        elif isinstance(self.flux_model, str):
-            self.flux_model = [self.flux_model.upper()]
-        else:
-            raise ValueError("flux_model must be either a string or list of strings.")
+        mode = str(self.flux.get("mode", "")).strip().lower()
+        if mode not in {"auto_generation", "customized"}:
+            raise ValueError("flux['mode'] must be either 'auto_generation' or 'customized'.")
 
-        if self.flux_model_version is None:
-            self.flux_model_version = ["v8"] * len(self.flux_model)
-        elif isinstance(self.flux_model_version, list):
-            if len(self.flux_model) != len(self.flux_model_version):
-                raise ValueError("If flux_model and flux_model_version are lists, they must be of the same length.")
-        elif isinstance(self.flux_model_version, str):
-            self.flux_model_version = [self.flux_model_version] * len(self.flux_model)
+        self.flux["mode"] = mode
+        if mode == "auto_generation":
+            if "total_emissions_Gg" not in self.flux:
+                raise ValueError("flux['total_emissions_Gg'] must be provided for auto_generation.")
+            if "method" not in self.flux or not str(self.flux["method"]).strip():
+                raise ValueError("flux['method'] must be provided for auto_generation.")
+
+            self.flux["method"] = str(self.flux["method"]).strip().lower()
+            region = self.flux.get("region")
+            if region is not None:
+                if not isinstance(region, dict):
+                    raise ValueError("flux['region'] must be a dictionary with lat/lon bounds.")
+                required_keys = {"lat_min", "lat_max", "lon_min", "lon_max"}
+                missing = required_keys.difference(region.keys())
+                if missing:
+                    missing_str = ", ".join(sorted(missing))
+                    raise ValueError(f"flux['region'] is missing required keys: {missing_str}")
+                self.flux["region_portion"] = float(self.flux.get("region_portion", 1.0))
+                if not 0.0 <= self.flux["region_portion"] <= 1.0:
+                    raise ValueError("flux['region_portion'] must be between 0 and 1.")
+
+                outside_method = self.flux.get("outside_method")
+                if self.flux["region_portion"] < 1.0 and not outside_method:
+                    raise ValueError("flux['outside_method'] must be provided when region_portion is less than 1.")
+                if outside_method is not None:
+                    self.flux["outside_method"] = str(outside_method).strip().lower()
+            else:
+                self.flux["region_portion"] = float(self.flux.get("region_portion", 1.0))
         else:
-            raise ValueError("flux_model_version must be either a string, list of strings, or None.")
+            path = self.flux.get("path")
+            variable = self.flux.get("variable")
+            if not path:
+                raise ValueError("flux['path'] must be provided for customized mode.")
+            if not variable:
+                raise ValueError("flux['variable'] must be provided for customized mode.")
+            self.flux["path"] = str(path)
+            self.flux["variable"] = str(variable)
     
     def _generate_month_range(self)->list:
         """
@@ -230,6 +252,69 @@ class FootprintFlux():
             return self.species.upper()
         else:
             return re.sub(r'^[a-zA-Z]+', lambda m: m.group().upper(), self.species)
+
+    def _standardize_flux_dataset(self, flux_ds: xr.Dataset, flux_var: str) -> xr.Dataset:
+        """Standardize a flux dataset to the internal 2D lat/lon + fluxes format."""
+        if flux_var not in flux_ds.data_vars:
+            raise ValueError(f"Flux variable {flux_var!r} not found in dataset.")
+
+        flux_da = flux_ds[flux_var].squeeze(drop=True)
+        rename_map = {}
+        if "latitude" in flux_da.dims:
+            rename_map["latitude"] = "lat"
+        if "longitude" in flux_da.dims:
+            rename_map["longitude"] = "lon"
+        if rename_map:
+            flux_da = flux_da.rename(rename_map)
+
+        if "lat" not in flux_da.dims or "lon" not in flux_da.dims:
+            raise ValueError("Flux variable must have latitude/longitude or lat/lon dimensions.")
+
+        extra_dims = [dim for dim in flux_da.dims if dim not in {"lat", "lon"}]
+        if extra_dims:
+            raise ValueError(
+                f"Flux variable must be two-dimensional after squeezing; found extra dimensions: {extra_dims}"
+            )
+
+        flux_da = flux_da.transpose("lat", "lon")
+        if "units" not in flux_da.attrs:
+            raise ValueError("Flux variable must define a 'units' attribute.")
+
+        return xr.Dataset({"fluxes": flux_da})
+
+    def _grids_match(self, flux_data: xr.Dataset, footprint_data: xr.Dataset) -> bool:
+        """Return True when flux and footprint grids already match."""
+        return (
+            np.array_equal(flux_data["lat"].values, footprint_data["latitude"].values)
+            and np.array_equal(flux_data["lon"].values, footprint_data["longitude"].values)
+        )
+
+    def _load_auto_generated_flux(self, footprint_data: xr.Dataset) -> xr.Dataset:
+        """Generate a flux prior directly on the footprint grid."""
+        flux_ds = generate_emissions_distribution(
+            total_Gg=self.flux["total_emissions_Gg"],
+            method=self.flux["method"],
+            year=int(self.start_date[0:4]),
+            lats=footprint_data["latitude"].values,
+            lons=footprint_data["longitude"].values,
+            nightlights_path=self.flux.get("nightlights_path"),
+            population_path=self.flux.get("population_path"),
+            base_data_dir=self.base_data_dir,
+            region=self.flux.get("region"),
+            region_portion=self.flux.get("region_portion", 1.0),
+            outside_method=self.flux.get("outside_method"),
+        )
+        return self._standardize_flux_dataset(flux_ds, "flux")
+
+    def _load_customized_flux(self) -> xr.Dataset:
+        """Load a customized prior from a user-provided NetCDF file."""
+        flux_path = Path(self.flux["path"]).expanduser()
+        if not flux_path.exists():
+            raise FileNotFoundError(f"Customized flux file not found: {flux_path}")
+
+        with xr.open_dataset(flux_path) as flux_ds:
+            flux_loaded = flux_ds.load()
+        return self._standardize_flux_dataset(flux_loaded, self.flux["variable"])
 
 
     def regrid_flux_to_footprint(self, 
@@ -378,46 +463,22 @@ class FootprintFlux():
             self.footprints[site] = xr.concat(site_fps, dim='time')
         return self.footprints
         
-    def get_flux(self):
+    def get_flux(self, footprint_data: xr.Dataset):
         """
-        Retrieve flux data for the specified species and flux model.
-        Stores data in self.fluxes as a dictionary: {species: data}
-        """ 
+        Retrieve or generate the configured flux prior.
+        """
         # Check the validity of the input parameters
         self._check_common_inputs()
         self._check_flux_inputs()
 
-        # Retrieve fluxes for each specified flux model and version
-        self.fluxes = {}
-        for i, _flux_model in enumerate(self.flux_model):
-            _flux_model_version = self.flux_model_version[i]
+        if self.flux["mode"] == "auto_generation":
+            flux_ds = self._load_auto_generated_flux(footprint_data)
+            print("Successfully generated flux prior on the footprint grid.")
+        else:
+            flux_ds = self._load_customized_flux()
+            print(f"Successfully loaded customized flux prior from {self.flux['path']}")
 
-            flux_file_path = f"{self.flux_dir}/{_flux_model}{_flux_model_version}/{self._species_string_format(format='upper_lower')}/*{_flux_model}*{self._species_string_format(format='upper_lower')}_{self.start_date[0:4]}*"
-            flux_files = glob.glob(flux_file_path)
-        
-            if flux_files:
-                flux_file = flux_files[0]
-                if len(flux_files) > 1:
-                    print(f"Warning: Multiple flux files found for {self.species} in {self.start_date[0:4]}. Using {flux_file}")
-            
-            else:
-                flux_file_path = f"{self.flux_dir}/{_flux_model}{_flux_model_version}/{self._species_string_format(format='upper_lower')}/*{self._species_string_format(format='upper_lower')}_{self.start_date[0:4]}*"
-                flux_files = glob.glob(flux_file_path)
-
-                if flux_files:
-                    flux_file = flux_files[0]
-                else:
-                    print(f"No flux file found for {self.species} in {self.start_date[0:4]} with model {_flux_model} version {_flux_model_version}")
-                    print(f"Search string: {flux_file_path}")
-                    return None
-
-            try:
-                self.fluxes[_flux_model] = xr.open_dataset(flux_file)
-                print(f"Successfully loaded flux data for {self.species} from {flux_file}")
-            except Exception as e:
-                print(f"Error loading {flux_file}: {e}")
-                self.fluxes[_flux_model] = None
-        
+        self.fluxes = {"prior": flux_ds}
         return self.fluxes
 
     def unit_registry(self)-> pint.UnitRegistry:
@@ -503,34 +564,37 @@ class FootprintFlux():
 
         # Load flux data and quantify units
         print("Loading flux data ...")
-        flux_data = self.get_flux()
-        for _flux_model in flux_data.keys():
-            iunit = flux_data[_flux_model]["fluxes"].attrs['units']
-            for _coord in flux_data[_flux_model]["fluxes"].coords:
-                flux_data[_flux_model]["fluxes"][_coord].attrs.pop("units", None)
+        fp_for_regridding = fps_dict[self.site[0]]  # Use the first site for grid reference
+
+        flux_data = self.get_flux(fp_for_regridding)
+        for flux_key in flux_data.keys():
+            iunit = flux_data[flux_key]["fluxes"].attrs['units']
+            for _coord in flux_data[flux_key]["fluxes"].coords:
+                flux_data[flux_key]["fluxes"][_coord].attrs.pop("units", None)
             if "-" in iunit:
                 iunit = self.normalize_cf_units(iunit)
-            
-            flux_data[_flux_model]["fluxes"] = flux_data[_flux_model]["fluxes"].pint.quantify(ureg.parse_units(iunit)).pint.to("g / m^2 / s")
+
+            flux_data[flux_key]["fluxes"] = flux_data[flux_key]["fluxes"].pint.quantify(ureg.parse_units(iunit)).pint.to("g / m^2 / s")
 
         # Regrid flux data to footprint grid
         regridded_fluxes = []
         regridded_fluxes_dim = []
 
-        fp_for_regridding = fps_dict[self.site[0]]  # Use the first site for grid reference
+        for flux_key in flux_data.keys():
+            if self._grids_match(flux_data[flux_key], fp_for_regridding):
+                regridded_flux = flux_data[flux_key]["fluxes"].values.copy()
+            else:
+                regridded_flux, _ = self.regrid_flux_to_footprint(flux_data[flux_key], fp_for_regridding)
 
-        for _flux_model in flux_data.keys():
-            regridded_flux, regridded_cube = self.regrid_flux_to_footprint(flux_data[_flux_model], fp_for_regridding)
-            
             # Convert from g/m2/s to mol/m2/s
-            regridded_flux /= self.species_molar_mass() 
-            
+            regridded_flux = regridded_flux / self.species_molar_mass()
+
             ds_flux = xr.Dataset({"flux": (["latitude", "longitude"], regridded_flux)},
                                  coords={"latitude": fp_for_regridding['latitude'].values,
                                          "longitude": fp_for_regridding['longitude'].values})
 
             regridded_fluxes.append(ds_flux)
-            regridded_fluxes_dim.append(_flux_model)
+            regridded_fluxes_dim.append(flux_key)
         
         # Concatenate regridded fluxes along a new dimension for flux model
         self.fluxes_regridded = xr.concat(regridded_fluxes, dim="flux_sector").assign_coords(flux_sector=regridded_fluxes_dim)
@@ -547,8 +611,8 @@ class FootprintFlux():
 
             site_fp_x_flux = []
 
-            for _flux_model in flux_data.keys():
-                flux_i = self.fluxes_regridded.sel(flux_sector=_flux_model)
+            for flux_key in flux_data.keys():
+                flux_i = self.fluxes_regridded.sel(flux_sector=flux_key)
                 site_fp_x_flux.append(fp_site * flux_i['flux'])
             
             site_fp_x_flux_concat = xr.concat(site_fp_x_flux, dim="flux_sector").assign_coords(flux_sector=regridded_fluxes_dim)

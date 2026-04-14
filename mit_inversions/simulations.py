@@ -89,8 +89,7 @@ def forward_simulation(data_dict: dict)->dict:
                        lpdm=data_dict['footprints']['lpdm'],
                        met_model=data_dict['footprints']['met_model'],
                        species=data_dict['species'],
-                       flux_model=data_dict['footprints']['flux_model'],
-                       flux_model_version=data_dict['footprints']['flux_model_version'],
+                       flux=data_dict['footprints']['flux'],
                        base_data_dir=data_dict['base_data_dir'],
                        ).align_flux_footprint()
     
