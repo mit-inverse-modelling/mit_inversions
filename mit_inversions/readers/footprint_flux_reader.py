@@ -36,7 +36,7 @@ class FootprintFlux():
                  sites: list | str | None = None,
                  site_inlets: list | str | None = None,
                  lpdm: str | None = None,
-                 met_model: str | None = None,
+                 met_model: list | str | None = None,
                  species: str | None = None,
                  flux_model: list | str | None = None,
                  flux_model_version: list | str | None = "v8",
@@ -107,29 +107,65 @@ class FootprintFlux():
         """
         Validate and normalize footprint-specific inputs.
         """
-        # if self.site is None or self.site_inlet is None:
-        #     raise ValueError("sites and site_inlets must be provided for footprint operations.")
+        if self.lpdm is None or not isinstance(self.lpdm, str) or not self.lpdm.strip():
+            raise ValueError("lpdm must be provided as a non-empty string for footprint operations.")
 
-        if not self.lpdm or not self.met_model:
-            raise ValueError("lpdm and met_model must be provided for footprint operations.")
+        if self.met_model is None:
+            raise ValueError("met_model must be provided for footprint operations.")
 
-        # Check site and site_inlet consistency
-        if isinstance(self.site, list) and isinstance(self.site_inlet, list):
+        self.lpdm = self.lpdm.strip()
+
+        # Normalize site and site_inlet. site_inlet is optional and defaults to wildcard.
+        if isinstance(self.site, str):
+            self.site = [self.site]
+        elif not isinstance(self.site, list):
+            raise ValueError("site must be either a string or list of strings.")
+
+        if self.site_inlet is None:
+            self.site_inlet = ["*"] * len(self.site)
+        elif isinstance(self.site_inlet, str):
+            self.site_inlet = [self.site_inlet] * len(self.site)
+        elif isinstance(self.site_inlet, list):
             if len(self.site) != len(self.site_inlet):
                 raise ValueError("If site and site_inlet are lists, they must be of the same length.")
-            
-        elif isinstance(self.site, str) and isinstance(self.site_inlet, str):
-            self.site = [self.site]
-            self.site_inlet = [self.site_inlet]
-
         else:
-            raise ValueError("site and site_inlet must both be either lists or strings.")
+            raise ValueError("site_inlet must be a string, list of strings, or None.")
 
-        for site_val, inlet_val in zip(self.site, self.site_inlet):
+        # Normalize met_model. A single string applies to all sites.
+        if isinstance(self.met_model, str):
+            if not self.met_model.strip():
+                raise ValueError("met_model must be a non-empty string when provided as a string.")
+            self.met_model = [self.met_model] * len(self.site)
+        elif isinstance(self.met_model, list):
+            if len(self.met_model) != len(self.site):
+                raise ValueError("If site and met_model are lists, they must be of the same length.")
+        else:
+            raise ValueError("met_model must be a string, list of strings, or None.")
+
+        site_norm = []
+        inlet_norm = []
+        met_norm = []
+        for site_val, inlet_val, met_val in zip(self.site, self.site_inlet, self.met_model):
             if not isinstance(site_val, str) or not site_val.strip():
                 raise ValueError("Each site must be a non-empty string for footprint operations.")
-            # if not isinstance(inlet_val, str) or not inlet_val.strip():
-            #     raise ValueError("Each site_inlet must be a non-empty string for footprint operations.")
+
+            if inlet_val is None:
+                inlet_clean = "*"
+            elif isinstance(inlet_val, str):
+                inlet_clean = inlet_val.strip() or "*"
+            else:
+                raise ValueError("Each site_inlet must be a string or None for footprint operations.")
+
+            if not isinstance(met_val, str) or not met_val.strip():
+                raise ValueError("Each met_model must be a non-empty string for footprint operations.")
+
+            site_norm.append(site_val.strip())
+            inlet_norm.append(inlet_clean)
+            met_norm.append(met_val.strip())
+
+        self.site = site_norm
+        self.site_inlet = inlet_norm
+        self.met_model = met_norm
 
     def _check_flux_inputs(self):
         """
@@ -183,7 +219,7 @@ class FootprintFlux():
         
         return months
 
-    def _file_search_pattern(self, site: str, inlet: str, yyyymm: str) -> str:
+    def _file_search_pattern(self, site: str, inlet: str, met_model: str, yyyymm: str) -> str:
         """Construct the file search pattern for footprint files based on site, inlet, and year-month.
         Parameters:
         - site (str): The name of the site (e.g., 'Mace Head').
@@ -192,12 +228,17 @@ class FootprintFlux():
         Returns:    
         - search_pattern (str): The constructed file search pattern for glob.
         """        
-        search_pattern = f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}/*_{self.lpdm.upper()}*_inert_*{yyyymm}*.nc"
+        inlet_pattern = "*" if inlet in (None, "", "*") else f"*{inlet}*"
+        search_pattern = (
+            f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}/"
+            f"{inlet_pattern}_{self.lpdm.upper()}*{met_model}*_inert_*{yyyymm}*.nc"
+        )
         return search_pattern
     
     def _find_files_for_month(self, 
                               site: str, 
                               inlet: str, 
+                              met_model: str,
                               yyyymm: str,
                               )->list:
         """
@@ -215,11 +256,46 @@ class FootprintFlux():
         - matching_files: 
             List of matching file paths
         """
-        # Construct the glob pattern to match files like:
-        # {inlet}_{lpdm}_gfas0p5_*_inert_{yyyymm}.nc
-        search_pattern = self._file_search_pattern(site, inlet, yyyymm)
-        matching_files = glob.glob(search_pattern)
-        return matching_files
+        # First pass: strict glob pattern (kept for backward compatibility and debug output).
+        search_pattern = self._file_search_pattern(site, inlet, met_model, yyyymm)
+        strict_matches = glob.glob(search_pattern)
+        if strict_matches:
+            return sorted(strict_matches)
+
+        # Second pass: robust case-insensitive token matching over all monthly files.
+        site_dir = f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}"
+        monthly_candidates = glob.glob(f"{site_dir}/*{yyyymm}*.nc")
+        if not monthly_candidates:
+            return []
+
+        lpdm_token = str(self.lpdm).lower()
+        met_token = str(met_model).lower()
+        inlet_token = str(inlet).strip().lower()
+
+        def _has_required_tokens(path: str) -> bool:
+            name = path.rsplit("/", 1)[-1].lower()
+            return (
+                lpdm_token in name
+                and met_token in name
+                and "_inert_" in name
+                and yyyymm in name
+            )
+
+        met_matches = [p for p in monthly_candidates if _has_required_tokens(p)]
+        if not met_matches:
+            return []
+
+        # If inlet was not explicitly requested, accept all met-matching files.
+        if inlet_token in ("", "*", "none"):
+            return sorted(met_matches)
+
+        # Prefer files that include the requested inlet token, but don't fail hard if
+        # naming does not encode inlet exactly as expected.
+        inlet_matches = [p for p in met_matches if inlet_token in p.rsplit("/", 1)[-1].lower()]
+        if inlet_matches:
+            return sorted(inlet_matches)
+
+        return sorted(met_matches)
     
     def _species_string_format(self, format=None) -> str:
         if format is None:
@@ -339,6 +415,7 @@ class FootprintFlux():
         # Construct the file path based on the input parameters
         for i, site in enumerate(self.site):
             inlet = self.site_inlet[i]
+            met_model = self.met_model[i]
             
             # Initialize nested dict for this site if not present
             if not hasattr(self, 'footprints'):
@@ -350,7 +427,7 @@ class FootprintFlux():
             site_fps = []
 
             for yyyymm in months:
-                matching_files = self._find_files_for_month(site, inlet, yyyymm)
+                matching_files = self._find_files_for_month(site, inlet, met_model, yyyymm)
                 
                 if matching_files:
                     # If multiple files match, use the first one
@@ -371,8 +448,8 @@ class FootprintFlux():
                 raise ValueError(
                     f"No footprint files found for site={site}, inlet={inlet}, "
                     f"date range {self.start_date} to {self.end_date}, "
-                    f"lpdm={self.lpdm}, met_model={self.met_model}."
-                    f"Search string: {self._file_search_pattern(site, inlet, yyyymm)}"
+                    f"lpdm={self.lpdm}, met_model={met_model}."
+                    f"Search string: {self._file_search_pattern(site, inlet, met_model, yyyymm)}"
                 )
 
             self.footprints[site] = xr.concat(site_fps, dim='time')
@@ -407,9 +484,11 @@ class FootprintFlux():
                 if flux_files:
                     flux_file = flux_files[0]
                 else:
-                    print(f"No flux file found for {self.species} in {self.start_date[0:4]} with model {_flux_model} version {_flux_model_version}")
-                    print(f"Search string: {flux_file_path}")
-                    return None
+                    raise FileNotFoundError(
+                        f"No flux file found for species={self.species}, year={self.start_date[0:4]}, "
+                        f"model={_flux_model}, version={_flux_model_version}. "
+                        f"Search string: {flux_file_path}"
+                    )
 
             try:
                 self.fluxes[_flux_model] = xr.open_dataset(flux_file)
@@ -504,6 +583,10 @@ class FootprintFlux():
         # Load flux data and quantify units
         print("Loading flux data ...")
         flux_data = self.get_flux()
+        if not isinstance(flux_data, dict) or len(flux_data) == 0:
+            raise ValueError(
+                "Flux data could not be loaded. Check species/flux_model/flux_model_version and file availability."
+            )
         for _flux_model in flux_data.keys():
             iunit = flux_data[_flux_model]["fluxes"].attrs['units']
             for _coord in flux_data[_flux_model]["fluxes"].coords:

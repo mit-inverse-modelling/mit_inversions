@@ -1,6 +1,7 @@
 
 import xarray as xr 
 import numpy as np
+import re
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -39,6 +40,19 @@ class PostProcessing:
         self.output_dir = output_dir
         self.fp_sens_dict_out = fp_sens_dict_out
 
+        self.species_formatted = self._species_string_format()
+
+    def _species_string_format(self) -> str:
+        """
+        Format the species string for use in file paths.
+        """
+        if "br" in self.species:
+            return self.species.upper().replace("BR", "Br")
+        elif "cl" in self.species:
+            return self.species.upper().replace("CL", "Cl")
+        else:
+            return re.sub(r'^[a-zA-Z]+', lambda m: m.group().upper(), self.species)
+
     def process_data(self):
         """
         Process the inversion results to extract relevant data for plotting and analysis.
@@ -49,7 +63,7 @@ class PostProcessing:
         self.H = self.inversion_results['H']
         self.xa = np.reshape(self.inversion_results['xa'], (-1, 1))
         self.xa_error = self.inversion_results['xa_error']
-        self.xhat = self.inversion_results['xhat']
+        self.xhat = np.reshape(self.inversion_results['xhat'], (-1, 1))
         self.shat = self.inversion_results['shat']
 
         # Calculate mole fractions
@@ -201,7 +215,7 @@ class PostProcessing:
 
         grid_area = grid_cell_area_m2(grid_lat, grid_lon)
 
-        species_mm = 1/molarmasses[self.species.upper()]
+        species_mm = 1/molarmasses[self.species_formatted]
 
         posterior_emissions = self.flux_post * grid_area * (3600*24*365.25) * species_mm
         prior_emissions = self.flux_prior * grid_area * (3600*24*365.25) * species_mm
