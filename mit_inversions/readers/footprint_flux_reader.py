@@ -36,7 +36,7 @@ class FootprintFlux():
                  sites: list | str | None = None,
                  site_inlets: list | str | None = None,
                  lpdm: str | None = None,
-                 met_model: str | None = None,
+                 met_model: list | str | None = None,
                  species: str | None = None,
                  flux_model: list | str | None = None,
                  flux_model_version: list | str | None = "v8",
@@ -110,11 +110,10 @@ class FootprintFlux():
         if self.lpdm is None or not isinstance(self.lpdm, str) or not self.lpdm.strip():
             raise ValueError("lpdm must be provided as a non-empty string for footprint operations.")
 
-        if self.met_model is None or not isinstance(self.met_model, str) or not self.met_model.strip():
-            raise ValueError("met_model must be provided as a non-empty string for footprint operations.")
+        if self.met_model is None:
+            raise ValueError("met_model must be provided for footprint operations.")
 
         self.lpdm = self.lpdm.strip()
-        self.met_model = self.met_model.strip()
 
         # Normalize site and site_inlet. site_inlet is optional and defaults to wildcard.
         if isinstance(self.site, str):
@@ -132,9 +131,21 @@ class FootprintFlux():
         else:
             raise ValueError("site_inlet must be a string, list of strings, or None.")
 
+        # Normalize met_model. A single string applies to all sites.
+        if isinstance(self.met_model, str):
+            if not self.met_model.strip():
+                raise ValueError("met_model must be a non-empty string when provided as a string.")
+            self.met_model = [self.met_model] * len(self.site)
+        elif isinstance(self.met_model, list):
+            if len(self.met_model) != len(self.site):
+                raise ValueError("If site and met_model are lists, they must be of the same length.")
+        else:
+            raise ValueError("met_model must be a string, list of strings, or None.")
+
         site_norm = []
         inlet_norm = []
-        for site_val, inlet_val in zip(self.site, self.site_inlet):
+        met_norm = []
+        for site_val, inlet_val, met_val in zip(self.site, self.site_inlet, self.met_model):
             if not isinstance(site_val, str) or not site_val.strip():
                 raise ValueError("Each site must be a non-empty string for footprint operations.")
 
@@ -145,11 +156,16 @@ class FootprintFlux():
             else:
                 raise ValueError("Each site_inlet must be a string or None for footprint operations.")
 
+            if not isinstance(met_val, str) or not met_val.strip():
+                raise ValueError("Each met_model must be a non-empty string for footprint operations.")
+
             site_norm.append(site_val.strip())
             inlet_norm.append(inlet_clean)
+            met_norm.append(met_val.strip())
 
         self.site = site_norm
         self.site_inlet = inlet_norm
+        self.met_model = met_norm
 
     def _check_flux_inputs(self):
         """
@@ -203,7 +219,7 @@ class FootprintFlux():
         
         return months
 
-    def _file_search_pattern(self, site: str, inlet: str, yyyymm: str) -> str:
+    def _file_search_pattern(self, site: str, inlet: str, met_model: str, yyyymm: str) -> str:
         """Construct the file search pattern for footprint files based on site, inlet, and year-month.
         Parameters:
         - site (str): The name of the site (e.g., 'Mace Head').
@@ -215,13 +231,14 @@ class FootprintFlux():
         inlet_pattern = "*" if inlet in (None, "", "*") else f"*{inlet}*"
         search_pattern = (
             f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}/"
-            f"{inlet_pattern}_{self.lpdm.upper()}*{self.met_model}*_inert_*{yyyymm}*.nc"
+            f"{inlet_pattern}_{self.lpdm.upper()}*{met_model}*_inert_*{yyyymm}*.nc"
         )
         return search_pattern
     
     def _find_files_for_month(self, 
                               site: str, 
                               inlet: str, 
+                              met_model: str,
                               yyyymm: str,
                               )->list:
         """
@@ -240,7 +257,7 @@ class FootprintFlux():
             List of matching file paths
         """
         # First pass: strict glob pattern (kept for backward compatibility and debug output).
-        search_pattern = self._file_search_pattern(site, inlet, yyyymm)
+        search_pattern = self._file_search_pattern(site, inlet, met_model, yyyymm)
         strict_matches = glob.glob(search_pattern)
         if strict_matches:
             return sorted(strict_matches)
@@ -252,7 +269,7 @@ class FootprintFlux():
             return []
 
         lpdm_token = str(self.lpdm).lower()
-        met_token = str(self.met_model).lower()
+        met_token = str(met_model).lower()
         inlet_token = str(inlet).strip().lower()
 
         def _has_required_tokens(path: str) -> bool:
@@ -398,6 +415,7 @@ class FootprintFlux():
         # Construct the file path based on the input parameters
         for i, site in enumerate(self.site):
             inlet = self.site_inlet[i]
+            met_model = self.met_model[i]
             
             # Initialize nested dict for this site if not present
             if not hasattr(self, 'footprints'):
@@ -409,7 +427,7 @@ class FootprintFlux():
             site_fps = []
 
             for yyyymm in months:
-                matching_files = self._find_files_for_month(site, inlet, yyyymm)
+                matching_files = self._find_files_for_month(site, inlet, met_model, yyyymm)
                 
                 if matching_files:
                     # If multiple files match, use the first one
@@ -430,8 +448,8 @@ class FootprintFlux():
                 raise ValueError(
                     f"No footprint files found for site={site}, inlet={inlet}, "
                     f"date range {self.start_date} to {self.end_date}, "
-                    f"lpdm={self.lpdm}, met_model={self.met_model}."
-                    f"Search string: {self._file_search_pattern(site, inlet, yyyymm)}"
+                    f"lpdm={self.lpdm}, met_model={met_model}."
+                    f"Search string: {self._file_search_pattern(site, inlet, met_model, yyyymm)}"
                 )
 
             self.footprints[site] = xr.concat(site_fps, dim='time')
@@ -466,9 +484,11 @@ class FootprintFlux():
                 if flux_files:
                     flux_file = flux_files[0]
                 else:
-                    print(f"No flux file found for {self.species} in {self.start_date[0:4]} with model {_flux_model} version {_flux_model_version}")
-                    print(f"Search string: {flux_file_path}")
-                    return None
+                    raise FileNotFoundError(
+                        f"No flux file found for species={self.species}, year={self.start_date[0:4]}, "
+                        f"model={_flux_model}, version={_flux_model_version}. "
+                        f"Search string: {flux_file_path}"
+                    )
 
             try:
                 self.fluxes[_flux_model] = xr.open_dataset(flux_file)
@@ -563,6 +583,10 @@ class FootprintFlux():
         # Load flux data and quantify units
         print("Loading flux data ...")
         flux_data = self.get_flux()
+        if not isinstance(flux_data, dict) or len(flux_data) == 0:
+            raise ValueError(
+                "Flux data could not be loaded. Check species/flux_model/flux_model_version and file availability."
+            )
         for _flux_model in flux_data.keys():
             iunit = flux_data[_flux_model]["fluxes"].attrs['units']
             for _coord in flux_data[_flux_model]["fluxes"].coords:
