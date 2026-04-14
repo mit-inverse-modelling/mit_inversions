@@ -21,6 +21,7 @@ from mit_inversions.inversion.setup import InversionSetupRun
 from mit_inversions.sensitivity import inversion_grid_sensitivity
 from mit_inversions.model_error_methods.model_error import ModelError
 from mit_inversions.readers.boundary_conditions import BoundaryConditions
+from mit_inversions.inversion.post_processing import PostProcessing
 
 def artemis(data_dict_inputs: dict):
    """
@@ -74,3 +75,16 @@ def artemis(data_dict_inputs: dict):
                                            inverse_method=data_dict_inputs['inversion']['inverse_method'],
                                            ).run()
    
+   output_dir = "/home/esaboya/cfc11/results"
+   post_processing_obj = PostProcessing(species=data_dict_inputs['species'],
+                                        start_date=data_dict_inputs['start_date'],
+                                        inversion_results=inversion_data_out, 
+                                        fp_sens_dict_out=fp_sens_dict_out, 
+                                        output_dir=output_dir)
+   
+   print("Calculating emissions by country...")
+   emissions = post_processing_obj.calculate_country_emissions()
+   print("Saving emissions to NetCDF...")
+   emissions.to_netcdf(f'{output_dir}/country_emissions_{data_dict_inputs["species"]}_{data_dict_inputs["start_date"]}.nc')
+
+   post_processing_obj.plot_gridded_data()
