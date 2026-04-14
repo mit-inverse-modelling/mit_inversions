@@ -1,6 +1,6 @@
 import numpy as np
 import warnings
-
+from scipy.stats import truncnorm
 import pymc as pm
 import arviz as az
 
@@ -202,6 +202,125 @@ def analytical_inversion(H, y, R, xa, P):
         print(f"Warning: Unusual DOFS value: {dofs:.2f} (expected 0 to {n})")
     
     return xhat, ak, shat
+
+
+def gen_ensemble(H, xb_bar, Pin, N, dist_type='gaussian', dist_params=None):
+    """Generate an ensemble of state vectors and their corresponding observations.
+       Intended for input to ETKF.
+       For the lognormal, input is the mean and std of the distribution (which 
+       will be converted to the underlying log-normal parameters)
+
+    Parameters:
+    -----------
+    dist_type : str
+        Distribution to sample from: 'gaussian', 'multivariate_normal', 'lognormal', 
+        'truncated_normal', 'uniform'
+    dist_params : dict
+        Optional parameters:
+        - truncated_normal: {'lower_bound': 0, 'upper_bound': np.inf}
+        - uniform: {'bounds': (lower, upper)} or use default ±√3·σ
+    """
+    if dist_params is None:
+        dist_params = {}
+    
+    nm = H.shape[0]
+    nx = H.shape[1]
+    yb_bar = H @ xb_bar
+    
+    sigma = np.expand_dims(np.diag(Pin)**0.5, axis=1)
+    mean = np.expand_dims(xb_bar, 1)
+    
+    # Sample state ensemble
+    if dist_type == 'gaussian':
+        xb = np.random.normal(loc=mean, scale=sigma, size=(nx, N))
+    
+    elif dist_type == 'multivariate_normal':
+        xb = np.random.multivariate_normal(mean=xb_bar, cov=Pin, size=N).T
+    
+    elif dist_type == 'lognormal':
+        mu = np.log(mean) - 0.5 * np.log(1 + (sigma / mean)**2)
+        sig = np.sqrt(np.log(1 + (sigma / mean)**2))
+        xb = np.random.lognormal(mean=mu, sigma=sig, size=(nx, N))
+    
+    elif dist_type == 'truncated_normal':
+        # Default bounds: [0, inf]
+        lower_bound = dist_params.get('lower_bound', 0)
+        upper_bound = dist_params.get('upper_bound', np.inf)
+        
+        xb = np.zeros((nx, N))
+        for i in range(nx):
+            a = (lower_bound - mean[i, 0]) / sigma[i, 0]
+            b = (upper_bound - mean[i, 0]) / sigma[i, 0]
+            xb[i, :] = truncnorm.rvs(a=a, b=b, 
+                                     loc=mean[i, 0], 
+                                     scale=sigma[i, 0], 
+                                     size=N)
+    
+    elif dist_type == 'uniform':
+        # Check if custom bounds provided, otherwise use ±√3·σ
+        if 'bounds' in dist_params:
+            bounds = dist_params['bounds']
+            low = np.full_like(mean, bounds[0])
+            high = np.full_like(mean, bounds[1])
+        else:
+            width = np.sqrt(3) * sigma
+            low = mean - width
+            high = mean + width
+        
+        xb = np.random.uniform(low=low, high=high, size=(nx, N))
+    
+    else:
+        raise ValueError(f"Unknown distribution: {dist_type}")
+    
+    # Compute observations and perturbations
+    Yb = (H @ xb) - np.expand_dims(yb_bar, 1)
+    Xb = xb - np.expand_dims(xb_bar, 1)
+    
+    return Xb, yb_bar, Yb
+
+def ETKF_step(Xb, Yb, R,y,xb_bar,yb_bar):
+    """An Ensemble Transform Kalman Filter"""
+    N = Yb.shape[1]
+    I = np.identity(N)
+    inv_R = np.linalg.inv(R)
+    Pas = np.linalg.inv(Yb.T @ inv_R @ Yb + (N-1)*I)
+    xa_bar = xb_bar + Xb @ Pas @ Yb.T @ inv_R @ (y-yb_bar)
+    Xa = Xb @ np.linalg.cholesky((N-1)*Pas)
+    Pa = Xa@Xa.T / (N-1)
+    return xa_bar, Pa
+
+def ETKF_inversion(H, y, R, xb_bar, Pin, N=1000, dist_type='gaussian', dist_params=None):
+    """Perform ETKF inversion for linear forward model y = Hx + ε, where ε ~ N(0,R).
+       The prior is represented by an ensemble of state vectors generated from 
+       the specified distribution.
+
+    Parameters:
+    -----------
+    H: Sensitivity matrix (Jacobian) - shape (m, n)
+    y: Observations - shape (m,) or (m, 1)
+    R: Observation error covariance matrix - shape (m, m) or diagonal variances (m,)
+    xb_bar: Prior mean state vector - shape (n,) or (n, 1)
+    Pin: Prior error covariance matrix - shape (n, n) or diagonal variances (n,)
+    N: Ensemble size
+    dist_type: Distribution type for generating the ensemble ('gaussian', 'multivariate_normal', 'lognormal', 'truncated_normal', 'uniform')
+    dist_params: Additional parameters for the distribution (e.g., bounds for truncated_normal)
+
+    Returns:
+    --------
+    xa_bar: Posterior mean state vector - shape (n,) or (n, 1)
+    Pa: Posterior error covariance matrix - shape (n, n)
+    
+    Note:
+    -----
+    The ETKF is an approximate method that relies on the ensemble representation of the prior. 
+    The quality of the results can depend on the choice of distribution and ensemble size.
+    """
+    
+    Xb, yb_bar, Yb = gen_ensemble(H, xb_bar, Pin, N, dist_type=dist_type, dist_params=dist_params)
+    
+    xa_bar, Pa = ETKF_step(Xb, Yb, R,y,xb_bar,yb_bar)
+    
+    return xa_bar, Pa
 
 def hbmcmc_inversion(H, y, R_prior, x_prior_builder, 
                      n_samples=1e5, 
