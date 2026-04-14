@@ -204,7 +204,7 @@ def analytical_inversion(H, y, R, xa, P):
     return xhat, ak, shat
 
 
-def gen_ensemble(H, xb_bar, Pin, N, dist_type='gaussian', dist_params=None):
+def gen_ensemble(H, xb_bar, Pin, N, dist_type='gaussian', dist_params=None, random_seed=None):
     """Generate an ensemble of state vectors and their corresponding observations.
        Intended for input to ETKF.
        For the lognormal, input is the mean and std of the distribution (which 
@@ -222,25 +222,35 @@ def gen_ensemble(H, xb_bar, Pin, N, dist_type='gaussian', dist_params=None):
     """
     if dist_params is None:
         dist_params = {}
+
+    rng = np.random.default_rng(random_seed)
     
-    nm = H.shape[0]
     nx = H.shape[1]
-    yb_bar = H @ xb_bar
     
     sigma = np.expand_dims(np.diag(Pin)**0.5, axis=1)
     mean = np.expand_dims(xb_bar, 1)
     
     # Sample state ensemble
     if dist_type == 'gaussian':
-        xb = np.random.normal(loc=mean, scale=sigma, size=(nx, N))
+        # gaussian mode samples independent components from diag(Pin).
+        # If Pin has off-diagonal structure, prefer multivariate_normal.
+        if not np.allclose(Pin, np.diag(np.diag(Pin))):
+            warnings.warn(
+                "dist_type='gaussian' ignores off-diagonal prior covariance; "
+                "falling back to 'multivariate_normal'.",
+                stacklevel=2,
+            )
+            xb = rng.multivariate_normal(mean=xb_bar, cov=Pin, size=N).T
+        else:
+            xb = rng.normal(loc=mean, scale=sigma, size=(nx, N))
     
     elif dist_type == 'multivariate_normal':
-        xb = np.random.multivariate_normal(mean=xb_bar, cov=Pin, size=N).T
+        xb = rng.multivariate_normal(mean=xb_bar, cov=Pin, size=N).T
     
     elif dist_type == 'lognormal':
         mu = np.log(mean) - 0.5 * np.log(1 + (sigma / mean)**2)
         sig = np.sqrt(np.log(1 + (sigma / mean)**2))
-        xb = np.random.lognormal(mean=mu, sigma=sig, size=(nx, N))
+        xb = rng.lognormal(mean=mu, sigma=sig, size=(nx, N))
     
     elif dist_type == 'truncated_normal':
         # Default bounds: [0, inf]
@@ -251,10 +261,11 @@ def gen_ensemble(H, xb_bar, Pin, N, dist_type='gaussian', dist_params=None):
         for i in range(nx):
             a = (lower_bound - mean[i, 0]) / sigma[i, 0]
             b = (upper_bound - mean[i, 0]) / sigma[i, 0]
-            xb[i, :] = truncnorm.rvs(a=a, b=b, 
-                                     loc=mean[i, 0], 
-                                     scale=sigma[i, 0], 
-                                     size=N)
+            xb[i, :] = truncnorm.rvs(a=a, b=b,
+                                     loc=mean[i, 0],
+                                     scale=sigma[i, 0],
+                                     size=N,
+                                     random_state=rng)
     
     elif dist_type == 'uniform':
         # Check if custom bounds provided, otherwise use ±√3·σ
@@ -267,29 +278,45 @@ def gen_ensemble(H, xb_bar, Pin, N, dist_type='gaussian', dist_params=None):
             low = mean - width
             high = mean + width
         
-        xb = np.random.uniform(low=low, high=high, size=(nx, N))
+        xb = rng.uniform(low=low, high=high, size=(nx, N))
     
     else:
         raise ValueError(f"Unknown distribution: {dist_type}")
     
-    # Compute observations and perturbations
+    # Enforce consistency with the prescribed prior mean for finite ensembles.
+    xb = xb - np.mean(xb, axis=1, keepdims=True) + mean
+
+    # Compute perturbations and simulated-observation anomalies around xb_bar.
+    yb_bar = H @ xb_bar
     Yb = (H @ xb) - np.expand_dims(yb_bar, 1)
     Xb = xb - np.expand_dims(xb_bar, 1)
-    
+
     return Xb, yb_bar, Yb
 
 def ETKF_step(Xb, Yb, R,y,xb_bar,yb_bar):
     """An Ensemble Transform Kalman Filter"""
     N = Yb.shape[1]
     I = np.identity(N)
-    inv_R = np.linalg.inv(R)
-    Pas = np.linalg.inv(Yb.T @ inv_R @ Yb + (N-1)*I)
-    xa_bar = xb_bar + Xb @ Pas @ Yb.T @ inv_R @ (y-yb_bar)
-    Xa = Xb @ np.linalg.cholesky((N-1)*Pas)
+    # Ensemble-space ETKF solve with symmetric eigendecomposition for stability.
+    Rinv_Yb = np.linalg.solve(R, Yb)
+    system = Yb.T @ Rinv_Yb + (N - 1) * I
+    system = 0.5 * (system + system.T)
+
+    innovation = y - yb_bar
+    rhs = Yb.T @ np.linalg.solve(R, innovation)
+    w = np.linalg.solve(system, rhs)
+    xa_bar = xb_bar + Xb @ w
+
+    evals, evecs = np.linalg.eigh(system)
+    eps = 1e-12 * np.max(np.abs(evals)) if evals.size else 1e-12
+    evals = np.clip(evals, eps, None)
+    sqrt_transform = np.sqrt(N - 1.0) * (evecs @ np.diag(1.0 / np.sqrt(evals)) @ evecs.T)
+
+    Xa = Xb @ sqrt_transform
     Pa = Xa@Xa.T / (N-1)
     return xa_bar, Pa
 
-def ETKF_inversion(H, y, R, xb_bar, Pin, N=1000, dist_type='gaussian', dist_params=None):
+def ETKF_inversion(H, y, R, xb_bar, Pin, N=1000, dist_type='gaussian', dist_params=None, random_seed=None):
     """Perform ETKF inversion for linear forward model y = Hx + ε, where ε ~ N(0,R).
        The prior is represented by an ensemble of state vectors generated from 
        the specified distribution.
@@ -316,9 +343,17 @@ def ETKF_inversion(H, y, R, xb_bar, Pin, N=1000, dist_type='gaussian', dist_para
     The quality of the results can depend on the choice of distribution and ensemble size.
     """
     
-    Xb, yb_bar, Yb = gen_ensemble(H, xb_bar, Pin, N, dist_type=dist_type, dist_params=dist_params)
+    Xb, yb_bar, Yb = gen_ensemble(
+        H,
+        xb_bar,
+        Pin,
+        N,
+        dist_type=dist_type,
+        dist_params=dist_params,
+        random_seed=random_seed,
+    )
     
-    xa_bar, Pa = ETKF_step(Xb, Yb, R,y,xb_bar,yb_bar)
+    xa_bar, Pa = ETKF_step(Xb, Yb, R, y, xb_bar, yb_bar)
     
     return xa_bar, Pa
 

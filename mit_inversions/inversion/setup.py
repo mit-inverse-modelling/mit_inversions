@@ -10,7 +10,7 @@
 
 import numpy as np
 import xarray as xr
-from mit_inversions.inversion.inversion import analytical_inversion
+from mit_inversions.inversion.inversion import analytical_inversion, ETKF_inversion
 
 class InversionSetupRun:
     """
@@ -21,7 +21,8 @@ class InversionSetupRun:
                  model_data_dict, 
                  bc_dict, 
                  flux_grid, 
-                 inverse_method):
+                 inverse_method,
+                 inverse_kwargs=None):
         """
         Initialize inversion setup with model data, boundary conditions, 
         flux grid, and inversion method.
@@ -30,9 +31,11 @@ class InversionSetupRun:
         self.model_data_dict_bc = bc_dict
         self.flux_grid_prior = flux_grid
 
-        if inverse_method.lower() not in ["analytical", "mcmc"]:
-            raise ValueError("inverse_method must be either 'analytical' or 'mcmc'")
-        self.inverse_method = inverse_method
+        if inverse_method.lower() not in ["analytical", "mcmc", "etkf"]:
+            raise ValueError("inverse_method must be one of 'analytical', 'mcmc', or 'etkf'")
+
+        self.inverse_method = inverse_method.lower()
+        self.inverse_kwargs = inverse_kwargs or {}
     
     def _update_sitenames(self):
         """
@@ -101,7 +104,7 @@ class InversionSetupRun:
         self._map_flux_to_basis_function_grid()
         self._add_boundary_conditions_H()
 
-        if self.inverse_method == "analytical":
+        if self.inverse_method in ["analytical", "etkf"]:
             site_indicator = []
             for i, site in enumerate(self.sites):
                 # H at this point if the flux X footprint data for each basis function
@@ -148,8 +151,36 @@ class InversionSetupRun:
             for i in range(4):
                 xa_error[-i,-i]=0.001
 
-            # Perform analytical inversion to get posterior flux estimates and uncertainties
-            xhat, ak, shat=analytical_inversion(H_concat.data, Y_concat, YError_concat/20, xa, xa_error)
+            if self.inverse_method == "analytical":
+                # Perform analytical inversion to get posterior flux estimates and uncertainties
+                xhat, ak, shat = analytical_inversion(H_concat.data, Y_concat, YError_concat / 20, xa, xa_error)
+            else:
+                # ETKF expects a full observation covariance matrix.
+                etkf_n = int(self.inverse_kwargs.get("N", 1000))
+                default_dist_type = "gaussian" if np.allclose(xa_error, np.diag(np.diag(xa_error))) else "multivariate_normal"
+                etkf_dist_type = self.inverse_kwargs.get("dist_type", default_dist_type)
+                etkf_dist_params = self.inverse_kwargs.get("dist_params", None)
+                etkf_random_seed = self.inverse_kwargs.get("random_seed", 42)
+                # Keep the same R convention used by analytical_inversion in this workflow:
+                # YError_concat / 20 is interpreted as diagonal variances.
+                R_etkf = np.diag(YError_concat / 20)
+
+                xhat, shat = ETKF_inversion(
+                    H_concat.data,
+                    Y_concat,
+                    R_etkf,
+                    xa,
+                    xa_error,
+                    N=etkf_n,
+                    dist_type=etkf_dist_type,
+                    dist_params=etkf_dist_params,
+                    random_seed=etkf_random_seed,
+                )
+                ak = None
+
+            # Keep state vectors as column vectors for downstream post-processing.
+            xhat = np.asarray(xhat, dtype=np.float64).reshape(-1, 1)
+            xa = np.asarray(xa, dtype=np.float64).reshape(-1, 1)
 
             # Dictionary of outputs
             data_dict_out = {
@@ -164,6 +195,7 @@ class InversionSetupRun:
                 "shat": shat,
                 "site_indicator": site_indicator,
                 "sites": self.sites,
+                "inverse_method": self.inverse_method,
                 }
 
             return data_dict_out

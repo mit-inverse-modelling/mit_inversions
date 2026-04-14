@@ -107,29 +107,49 @@ class FootprintFlux():
         """
         Validate and normalize footprint-specific inputs.
         """
-        # if self.site is None or self.site_inlet is None:
-        #     raise ValueError("sites and site_inlets must be provided for footprint operations.")
+        if self.lpdm is None or not isinstance(self.lpdm, str) or not self.lpdm.strip():
+            raise ValueError("lpdm must be provided as a non-empty string for footprint operations.")
 
-        if not self.lpdm or not self.met_model:
-            raise ValueError("lpdm and met_model must be provided for footprint operations.")
+        if self.met_model is None or not isinstance(self.met_model, str) or not self.met_model.strip():
+            raise ValueError("met_model must be provided as a non-empty string for footprint operations.")
 
-        # Check site and site_inlet consistency
-        if isinstance(self.site, list) and isinstance(self.site_inlet, list):
+        self.lpdm = self.lpdm.strip()
+        self.met_model = self.met_model.strip()
+
+        # Normalize site and site_inlet. site_inlet is optional and defaults to wildcard.
+        if isinstance(self.site, str):
+            self.site = [self.site]
+        elif not isinstance(self.site, list):
+            raise ValueError("site must be either a string or list of strings.")
+
+        if self.site_inlet is None:
+            self.site_inlet = ["*"] * len(self.site)
+        elif isinstance(self.site_inlet, str):
+            self.site_inlet = [self.site_inlet] * len(self.site)
+        elif isinstance(self.site_inlet, list):
             if len(self.site) != len(self.site_inlet):
                 raise ValueError("If site and site_inlet are lists, they must be of the same length.")
-            
-        elif isinstance(self.site, str) and isinstance(self.site_inlet, str):
-            self.site = [self.site]
-            self.site_inlet = [self.site_inlet]
-
         else:
-            raise ValueError("site and site_inlet must both be either lists or strings.")
+            raise ValueError("site_inlet must be a string, list of strings, or None.")
 
+        site_norm = []
+        inlet_norm = []
         for site_val, inlet_val in zip(self.site, self.site_inlet):
             if not isinstance(site_val, str) or not site_val.strip():
                 raise ValueError("Each site must be a non-empty string for footprint operations.")
-            # if not isinstance(inlet_val, str) or not inlet_val.strip():
-            #     raise ValueError("Each site_inlet must be a non-empty string for footprint operations.")
+
+            if inlet_val is None:
+                inlet_clean = "*"
+            elif isinstance(inlet_val, str):
+                inlet_clean = inlet_val.strip() or "*"
+            else:
+                raise ValueError("Each site_inlet must be a string or None for footprint operations.")
+
+            site_norm.append(site_val.strip())
+            inlet_norm.append(inlet_clean)
+
+        self.site = site_norm
+        self.site_inlet = inlet_norm
 
     def _check_flux_inputs(self):
         """
@@ -192,7 +212,11 @@ class FootprintFlux():
         Returns:    
         - search_pattern (str): The constructed file search pattern for glob.
         """        
-        search_pattern = f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}/*_{self.lpdm.upper()}*_inert_*{yyyymm}*.nc"
+        inlet_pattern = "*" if inlet in (None, "", "*") else f"*{inlet}*"
+        search_pattern = (
+            f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}/"
+            f"{inlet_pattern}_{self.lpdm.upper()}*{self.met_model}*_inert_*{yyyymm}*.nc"
+        )
         return search_pattern
     
     def _find_files_for_month(self, 
@@ -215,11 +239,46 @@ class FootprintFlux():
         - matching_files: 
             List of matching file paths
         """
-        # Construct the glob pattern to match files like:
-        # {inlet}_{lpdm}_gfas0p5_*_inert_{yyyymm}.nc
+        # First pass: strict glob pattern (kept for backward compatibility and debug output).
         search_pattern = self._file_search_pattern(site, inlet, yyyymm)
-        matching_files = glob.glob(search_pattern)
-        return matching_files
+        strict_matches = glob.glob(search_pattern)
+        if strict_matches:
+            return sorted(strict_matches)
+
+        # Second pass: robust case-insensitive token matching over all monthly files.
+        site_dir = f"{self.fp_dir}/{self.lpdm.lower()}/{site.lower()}"
+        monthly_candidates = glob.glob(f"{site_dir}/*{yyyymm}*.nc")
+        if not monthly_candidates:
+            return []
+
+        lpdm_token = str(self.lpdm).lower()
+        met_token = str(self.met_model).lower()
+        inlet_token = str(inlet).strip().lower()
+
+        def _has_required_tokens(path: str) -> bool:
+            name = path.rsplit("/", 1)[-1].lower()
+            return (
+                lpdm_token in name
+                and met_token in name
+                and "_inert_" in name
+                and yyyymm in name
+            )
+
+        met_matches = [p for p in monthly_candidates if _has_required_tokens(p)]
+        if not met_matches:
+            return []
+
+        # If inlet was not explicitly requested, accept all met-matching files.
+        if inlet_token in ("", "*", "none"):
+            return sorted(met_matches)
+
+        # Prefer files that include the requested inlet token, but don't fail hard if
+        # naming does not encode inlet exactly as expected.
+        inlet_matches = [p for p in met_matches if inlet_token in p.rsplit("/", 1)[-1].lower()]
+        if inlet_matches:
+            return sorted(inlet_matches)
+
+        return sorted(met_matches)
     
     def _species_string_format(self, format=None) -> str:
         if format is None:

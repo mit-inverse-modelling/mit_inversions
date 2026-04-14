@@ -69,6 +69,11 @@ def forward_simulation(data_dict: dict)->dict:
     Run the forward simulation of the ARTEMIS framework using the aligned 
     observations and footprint fluxes data.
     """
+    footprints_cfg = data_dict.get('footprints', {})
+    met_model = footprints_cfg.get('met_model')
+    if not isinstance(met_model, str) or not met_model.strip():
+        raise ValueError("data_dict['footprints']['met_model'] is required and must be a non-empty string.")
+
     # Get observations and footprint-flux data
     observations = Observations(species=data_dict['species'],
                                 sites=data_dict['sites'],
@@ -85,9 +90,9 @@ def forward_simulation(data_dict: dict)->dict:
      ) = FootprintFlux(start_date=data_dict['start_date'],
                        end_date=data_dict['end_date'],
                        sites=data_dict['sites'],
-                       site_inlets=data_dict['footprints']['site_inlets'],
+                       site_inlets=data_dict['footprints'].get('site_inlets'),
                        lpdm=data_dict['footprints']['lpdm'],
-                       met_model=data_dict['footprints']['met_model'],
+                       met_model=met_model,
                        species=data_dict['species'],
                        flux_model=data_dict['footprints']['flux_model'],
                        flux_model_version=data_dict['footprints']['flux_model_version'],

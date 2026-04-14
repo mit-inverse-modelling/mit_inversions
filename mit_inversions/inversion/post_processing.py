@@ -49,7 +49,7 @@ class PostProcessing:
         self.H = self.inversion_results['H']
         self.xa = np.reshape(self.inversion_results['xa'], (-1, 1))
         self.xa_error = self.inversion_results['xa_error']
-        self.xhat = self.inversion_results['xhat']
+        self.xhat = np.reshape(self.inversion_results['xhat'], (-1, 1))
         self.shat = self.inversion_results['shat']
 
         # Calculate mole fractions
