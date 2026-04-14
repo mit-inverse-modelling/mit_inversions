@@ -106,6 +106,8 @@ class InversionSetupRun:
 
         if self.inverse_method in ["analytical", "etkf"]:
             site_indicator = []
+            bc_data_indicator = []
+
             for i, site in enumerate(self.sites):
                 # H at this point if the flux X footprint data for each basis function
                 fpXflux_bf = self.fp_sens_dict_out[site]['H']
@@ -116,6 +118,13 @@ class InversionSetupRun:
                 H_fp = (fpXflux_bf / self.flux_prior_sector['flux_bf'].sum(dim="flux_sector")).fillna(0)
                 H_bc = self.fp_sens_dict_out[site]['Hbc']
                 H_all = xr.concat([H_fp, H_bc.rename({'period_edge': 'region'})], dim='region').rename({'region': 'region_all'})
+                
+                nH = H_all.shape[1]
+                nHB = H_bc.shape[1]
+                for j in range(nH):
+                    bc_data_indicator.append(0)
+                for j in range(nHB):
+                    bc_data_indicator.append(1)
                 
                 # Atmospheric mole fraction observations 
                 y = self.fp_sens_dict_out[site]['mf'].values
