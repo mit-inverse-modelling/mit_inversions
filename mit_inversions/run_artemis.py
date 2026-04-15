@@ -20,8 +20,14 @@ data_dict = {
         "site_inlets": [],
         "lpdm": "STILT",
         "met_model": "GDAS",
-        "flux_model": "EDGAR",
-        "flux_model_version": "v8",
+        "flux": {
+            "mode": "auto_generation",
+            "total_emissions_Gg": 100.0,
+            "method": "uniform",
+            "region": None,
+            "region_portion": 1.0,
+            "outside_method": None,
+        },
         },
 
     "basis_functions": {
