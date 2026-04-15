@@ -229,3 +229,233 @@ class PostProcessing:
         ds_country_emissions['posterior_emissions'].attrs['units'] = 'g/year'    
 
         return ds_country_emissions
+
+
+
+
+class PostProcessingDataOutputs:
+
+    def __init__(self, 
+                 species: str,
+                 start_date: str,
+                 inversion_results: dict,
+                 fp_sens_dict_out: dict,
+                 output_dir: str,                 
+                 ):
+        """
+        Initialize the PostProcessingDataOutputs class.
+        Parameters:
+        -----------
+        species (str):
+            The species for which to process inversion results.
+        start_date (str):
+            The start date for the inversion period.
+        inversion_results (dict):
+            A dictionary containing the inversion results.
+        fp_sens_dict_out (dict):
+            A dictionary containing the forward model sensitivity information.
+        output_dir (str):
+            The directory where output files will be saved.
+        """
+        self.species = species
+        self.start_date = start_date
+        self.inversion_results = inversion_results
+        self.output_dir = output_dir
+        self.fp_sens_dict_out = fp_sens_dict_out
+
+    def process_data(self):
+        """
+        Process the inversion results to extract relevant data 
+        for plotting and analysis.
+        """
+        # time - stacked by site 
+        self.time = self.inversion_results['time']
+
+        # observed mole fractions - stacked by site 
+        self.mf_obs = self.inversion_results['mf_obs']
+
+        # total observational error - stacked by site
+        self.mf_obs_err = self.inversion_results['mf_obs_err']
+
+        # Stack the observational error components and 
+        # simulated site baseline mole fractions by site
+        mf_obs_variability = []
+        mf_obs_repeatability = []
+        mf_model_error = []
+        mf_sim_bc = []
+
+        for site in self.inversion_results['sites']:
+            temp_mf_variability = self.fp_sens_dict_out[site]['mf_variability'].values
+            temp_mf_repeatability = self.fp_sens_dict_out[site]['mf_repeatability'].values
+            temp_mf_model_error = self.fp_sens_dict_out[site]['mf_model_error'].values
+            temp_mf_sim_bc = self.fp_sens_dict_out[site]['mf_sim_bc'].values 
+        
+            for i in range(len(temp_mf_variability)):
+                mf_obs_variability.append(temp_mf_variability[i])
+                mf_obs_repeatability.append(temp_mf_repeatability[i])
+                mf_model_error.append(temp_mf_model_error[i])
+                mf_sim_bc.append(temp_mf_sim_bc[i])
+        
+        self.mf_obs_variability = np.array(mf_obs_variability)
+        self.mf_obs_repeatability = np.array(mf_obs_repeatability)
+        self.mf_model_error = np.array(mf_model_error)
+        self.mf_sim_bc = np.array(mf_sim_bc)
+
+        self.H = self.inversion_results['H']
+        # self.xa = np.reshape(self.inversion_results['xa'], (-1, 1))
+        self.xa  = self.inversion_results['xa']
+        self.xa_error = self.inversion_results['xa_error']
+        self.xhat = self.inversion_results['xhat'].flatten()
+        self.shat = self.inversion_results['shat']
+
+        # simulated mole fractions - stacked by site 
+        self.mf_sim = self.H.data @ self.xa
+
+        self.mf_sim_opt = self.H.data @ self.xhat
+        self.mf_sim_opt_err = self.H.data @ np.sqrt(np.diagonal(self.shat)) - self.mf_sim_opt
+
+        self.sites = self.inversion_results['sites']
+        self.site_indicator = self.inversion_results['site_indicator'][0]
+        
+        bc_indicator = np.diag(self.inversion_results['bc_data_indicator'])
+        self.mf_sim_opt_bc = self.H @ bc_indicator @ self.xhat
+
+    def _get_site_geo_info(self):
+        """
+        Method to retrieve the longitude, latitude, altitude 
+        for each site
+        """
+        # Read site information json file 
+        import json 
+        # import mit_inversions.mit_inversions.data.site_data.json as site_data
+        with open("/home/esaboya/mit_inversions/mit_inversions/data/site_data.json") as f:
+            site_info_f = json.load(f)
+        
+        # Get site names and siteindicator values
+        sites = self.inversion_results['sites']
+        siteindicator = self.inversion_results['site_indicator']
+
+        longitudes, latitudes, altitudes = [], [], []
+        for i, site in enumerate(sites):
+            site_info_dict = site_info_f[site]
+            _network = list(site_info_dict.keys())[0]
+            N_site_index = len(np.where(siteindicator == i)[0])
+
+            for j in range(N_site_index):
+                longitudes.append(site_info_dict[_network]['longitude'])
+                latitudes.append(site_info_dict[_network]['latitude'])
+                altitudes.append(site_info_dict[_network]['height_station_masl'])
+
+        self.longitude = np.array(longitudes)
+        self.latitude = np.array(latitudes)
+        self.altitude = np.array(altitudes)
+
+    def _get_time_bounds(self):
+        """
+        Method to calculate time bounds for each observation based on the time array
+        """
+        time_bnds = []
+        for i in range(len(self.time)-1):
+            time_bnds.append([self.time[i], self.time[i+1]])
+        time_bnds.append([self.time[-1], self.time[-1] + (self.time[-1] - self.time[-2])])  # Extrapolate last time bound
+        self.time_bnds = np.array(time_bnds)
+
+    def fluxie(self):
+        """
+        Process inversion results in concentration and flux formats that align 
+        with FLUXIE formatting
+        """
+        
+        def concentration_attrs(ds_concentrations):
+            """
+            Add attributes to the concentration dataset variables according to FLUXIE formatting guidelines
+            """
+            ds_concentrations["longitude"].attrs["long_name"] = "sample_longitude_in_decimal_degrees"
+            ds_concentrations["longitude"].attrs["units"] = "degrees_east"
+            ds_concentrations["longitude"].attrs["comment"] = "Longitude at which air sample was collected."
+            ds_concentrations["longitude"].attrs["standard_name"] = "longitude"
+
+            ds_concentrations["latitude"].attrs["long_name"] = "sample_latitude_in_decimal_degrees"
+            ds_concentrations["latitude"].attrs["units"] = "degrees_north"
+            ds_concentrations["latitude"].attrs["comment"] = "Latitude at which air sample was collected."
+            ds_concentrations["latitude"].attrs["standard_name"] = "latitude"
+
+            ds_concentrations["altitude"].attrs["long_name"] = "sample_altitude_in_decimal_degrees"
+            ds_concentrations["altitude"].attrs["units"] = "m"
+            ds_concentrations["altitude"].attrs["comment"] = "Altitude (surface elevation plus sample intake height) at which air sample was collected."
+            ds_concentrations["altitude"].attrs["standard_name"] = "altitude"
+
+            ds_concentrations["number_of_identifier"].attrs["long_name"] = "Index of identifier of observing platform"
+            ds_concentrations["number_of_identifier"].attrs["units"] = "1"
+
+            # Observations
+            ds_concentrations["mf_observed"].attrs["units"] = "mol mol-1"
+            ds_concentrations["mf_observed"].attrs["long_name"] = "observed mole fraction of co2 in dry air"
+
+            ds_concentrations["stdev_mf_observed_repeatability"].attrs["units"] = "mol mol-1"
+            ds_concentrations["stdev_mf_observed_repeatability"].attrs["long_name"] = "repeatability uncertainty of observed mole fraction"
+            ds_concentrations["stdev_mf_observed_repeatability"].attrs["comment"] = "understood as combined analytical uncertainty"
+
+            ds_concentrations["stdev_mf_observed_variability"].attrs["units"] = "mol mol-1"
+            ds_concentrations["stdev_mf_observed_variability"].attrs["long_name"] = "variability uncertainty of observed mole fraction"
+
+            ds_concentrations["stdev_mf_model"].attrs["units"] = "mol mol-1"
+            ds_concentrations["stdev_mf_model"].attrs["long_name"] = "model uncertainty of simulated mole fraction"
+
+            ds_concentrations["stdev_mf_total"].attrs["units"] = "mol mol-1"
+            ds_concentrations["stdev_mf_total"].attrs["long_name"] = "total model-data-mismatch uncertainty applied in inversion"
+            
+            # Simulations
+            ds_concentrations["mf_prior"].attrs["units"] = "mol mol-1"
+            ds_concentrations["mf_prior"].attrs["long_name"] = "prior simulated mole fraction of co2 in dry air"
+            ds_concentrations["mf_posterior"].attrs["units"] = "mol mol-1"
+            ds_concentrations["mf_posterior"].attrs["long_name"] = "posterior simulated mole fraction of co2 in dry air"
+            ds_concentrations["mf_bc_prior"].attrs["units"] = "mol mol-1"
+            ds_concentrations["mf_bc_prior"].attrs["long_name"] = "prior simulated boundary condition mole fraction including site bias"
+            ds_concentrations["mf_bc_posterior"].attrs["units"] = "mol mol-1"
+            ds_concentrations["mf_bc_posterior"].attrs["long_name"] = "posterior simulated boundary condition mole fraction including site bias"
+
+            # ds_concentrations["percentile_mf_posterior"].attrs["units"] = "mol mol-1"
+            # ds_concentrations["percentile_mf_posterior"].attrs["long_names"] = "percentile of posterior simulated mole fraction due to state vector uncertainty"
+            
+            # Auxiliary
+            ds_concentrations["platform"].attrs["long_name"] = "identifier of observing platform; e.g., 3 letter ID for surface in-situ sites plus inlet height above ground: MHD-10"
+            # ds_concentrations["sector"].attrs["long_name"] = "short name of flux sector"
+            # ds_concentrations["percentile"].attrs["units"] = "1"
+            # ds_concentrations["percentile"].attrs["long_name"] = "reported percentiles for non-Gaussian probability distribution functions"
+
+            return ds_concentrations
+
+        def concentrations():
+            """
+            Process mandatory variables only
+            """
+            self.process_data()
+            self._get_site_geo_info()
+            self._get_time_bounds()
+
+            my_data_vars = {
+                "time": (["index"], self.time),
+                "time_bnds": (["index", "nbnds"], self.time_bnds),
+                "longitude": (["index"], self.longitude),
+                "latitude": (["index"], self.latitude),
+                "altitude": (["index"], self.altitude),
+                "mf_observed": (["index"], self.mf_obs),
+                "stdev_mf_observed_repeatability": (["index"], self.mf_obs_repeatability),
+                "stdev_mf_observed_variability": (["index"], self.mf_obs_variability),
+                "stdev_mf_model": (["index"], self.mf_model_error),
+                "stdev_mf_total": (["index"], self.mf_obs_err),
+                "mf_prior": (["index"], self.mf_sim),
+                "mf_posterior": (["index"], self.mf_sim_opt),
+                "mf_bc_prior": (["index"], self.mf_sim_bc),
+                "mf_bc_posterior": (["index"], self.mf_sim_opt_bc),
+                "stdev_mf_posterior": (["index"], self.mf_sim_opt_err),
+                }
+            
+            mydims = {"platform": (["platform"], self.sites), "index": (["index"], np.arange(len(self.time)))}
+
+            ds_concentrations = xr.Dataset(data_vars=my_data_vars, coords=mydims)
+            # ds_conc = concentration_attrs(ds_concentrations)
+            return ds_concentrations
+        
+        return concentrations()
