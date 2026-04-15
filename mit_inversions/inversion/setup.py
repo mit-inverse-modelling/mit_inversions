@@ -109,14 +109,16 @@ class InversionSetupRun:
                 # H at this point if the flux X footprint data for each basis function
                 fpXflux_bf = self.fp_sens_dict_out[site]['H']
 
-                site_indicator.append([i] * len(self.fp_sens_dict_out[site]['time']))
+                for j in range(len(self.fp_sens_dict_out[site]['time'])):
+                    site_indicator.append(i)
 
                 # Sensitivity matrix for site footprints and boundary conditions
                 H_fp = (fpXflux_bf / self.flux_prior_sector['flux_bf'].sum(dim="flux_sector")).fillna(0)
                 H_bc = self.fp_sens_dict_out[site]['Hbc']
                 H_all = xr.concat([H_fp, H_bc.rename({'period_edge': 'region'})], dim='region').rename({'region': 'region_all'})
                 
-                nH = H_all.shape[1]
+                # BC data indicator: 0 for flux footprint data, 1 for BC data
+                nH = H_fp.shape[1]
                 nHB = H_bc.shape[1]
                 for j in range(nH):
                     bc_data_indicator.append(0)
@@ -171,9 +173,9 @@ class InversionSetupRun:
                 "xhat": xhat,
                 "ak": ak,
                 "shat": shat,
-                "site_indicator": site_indicator,
+                "site_indicator": np.array(site_indicator),
                 "sites": self.sites,
-                "bc_data_indicator": bc_data_indicator,
+                "bc_data_indicator": np.array(bc_data_indicator),
                 }
 
             return data_dict_out
