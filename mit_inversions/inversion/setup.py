@@ -36,6 +36,47 @@ class InversionSetupRun:
 
         self.inverse_method = inverse_method.lower()
         self.inverse_kwargs = inverse_kwargs or {}
+
+    def _build_prior_state_and_covariance(self, n_bc):
+        """
+        Build the prior mean state vector and prior covariance matrix.
+
+        For analytical/ETKF inversions we support emission and boundary-condition
+        scaling priors of the form:
+            x_emis = x_emis_base * s_emis,   s_emis ~ N(mu_emis, sigma_emis)
+            x_bc   = x_bc_base   * s_bc,     s_bc   ~ N(mu_bc, sigma_bc)
+
+        This returns the prior mean of x and a diagonal covariance matrix derived
+        from the scaling standard deviations.
+        """
+        xa_emis_base = np.asarray(
+            self.flux_prior_sector["flux_bf"].sum(dim="flux_sector").values,
+            dtype=np.float64,
+        )
+        xa_bc_base = np.ones(int(n_bc), dtype=np.float64)
+
+        emis_scaling_mean = float(self.inverse_kwargs.get("emis_scaling_mean", 1.0))
+        emis_scaling_sigma = float(self.inverse_kwargs.get("emis_scaling_sigma", 1.0))
+        bc_scaling_mean = float(self.inverse_kwargs.get("bc_scaling_mean", 1.0))
+        bc_scaling_sigma = float(self.inverse_kwargs.get("bc_scaling_sigma", 1.0))
+
+        if emis_scaling_sigma < 0 or bc_scaling_sigma < 0:
+            raise ValueError("emis_scaling_sigma and bc_scaling_sigma must be non-negative.")
+
+        variance_floor = float(self.inverse_kwargs.get("prior_variance_floor", 1e-12))
+        if variance_floor <= 0:
+            raise ValueError("prior_variance_floor must be positive.")
+
+        xa_emis = xa_emis_base * emis_scaling_mean
+        xa_bc = xa_bc_base * bc_scaling_mean
+
+        emis_var = np.maximum((xa_emis_base * emis_scaling_sigma) ** 2, variance_floor)
+        bc_var = np.maximum((xa_bc_base * bc_scaling_sigma) ** 2, variance_floor)
+
+        xa = np.concatenate([xa_emis, xa_bc])
+        xa_error = np.diag(np.concatenate([emis_var, bc_var]))
+
+        return xa, xa_error
     
     def _update_sitenames(self):
         """
@@ -148,19 +189,8 @@ class InversionSetupRun:
                     YError_concat = np.concatenate([YError_concat, y_err])
                     t_concat = np.concatenate([t_concat, t])
 
-            # xa are the a priori fluxes mapped to the basis function grid
-            xa_bc_filler = xr.Dataset({"bc_filler": (["region"], np.ones_like(H_bc['period_edge'].data))},
-                                        coords = {"region": H_bc['period_edge'].values},)
-
-            xa = xr.concat([self.flux_prior_sector['flux_bf'].sum(dim="flux_sector"), xa_bc_filler['bc_filler']], dim="region")
-            xa = np.array(xa.values, dtype=np.float64)
-
-            # a priori uncertainties (P matrix)
-            # NB. Uncertainties for the fluxes are absolute values, while for boundary conditions they are relative uncertainties.
-            xa_error = np.diag(xa * 100. + 1) 
-            
-            for i in range(4):
-                xa_error[-i,-i]=0.001
+            # xa is the prior mean state and xa_error is the prior covariance (P).
+            xa, xa_error = self._build_prior_state_and_covariance(nHB)
 
             if self.inverse_method == "analytical":
                 # Perform analytical inversion to get posterior flux estimates and uncertainties

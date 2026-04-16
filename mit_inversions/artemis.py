@@ -73,6 +73,7 @@ def artemis(data_dict_inputs: dict):
                                            bc_dict=model_data_dict_bc,
                                            flux_grid=flux_grid_prior,
                                            inverse_method=data_dict_inputs['inversion']['inverse_method'],
+                                           inverse_kwargs=data_dict_inputs.get('inversion', {}),
                                            ).run()
    
    output_dir = "/home/esaboya/cfc11/results"

@@ -38,6 +38,13 @@ data_dict = {
         "fp_flux_grid_error": None,
         },
 
+    "inversion": {
+        "inverse_method": "analytical",
+        "emis_scaling_mean": 1,
+        "emis_scaling_sigma": 1, 
+        "bc_scaling_mean": 1,
+        "bc_scaling_sigma": 0.2,
+    }
 }
 
 
@@ -59,3 +66,16 @@ data_dict = {
 #   A dictionary of parameters for the Observations class.
 # footprints:
 #   A dictionary of parameters for the FootprintFluxReader class.
+
+
+##### for DOCS: from Minde #####
+
+
+# Example of a customized flux input for the footprints section:
+# "flux": {
+#         "mode": "customized",
+#         "path": "/path/to/prior.nc",
+#         "variable": "flux",
+#     },
+
+# Example for mcmc inversion
