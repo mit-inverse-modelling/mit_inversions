@@ -9,8 +9,10 @@
 #  and performing the required calculations to run the inversion.
 
 import numpy as np
+import pandas as pd
 import xarray as xr
-from mit_inversions.inversion.inversion import analytical_inversion, ETKF_inversion
+from mit_inversions.inversion.inversion import analytical_inversion, ETKF_inversion, hbmcmc_inversion
+from mit_inversions.inversion.mcmc_builder import make_R_prior_sigma_additive, make_x_prior_scaling
 
 class InversionSetupRun:
     """
@@ -136,6 +138,22 @@ class InversionSetupRun:
                                                                         'time': (['time'], self.fp_sens_dict_out[site]['time'])
                                                                         })
 
+    def _build_group_index(self, site_names, times, group_mode):
+        if group_mode == "none":
+            return np.zeros(len(site_names), dtype=int)
+
+        group_index = []
+        for site, time_value in zip(site_names, times):
+            timestamp = pd.Timestamp(time_value)
+            if group_mode == "site_year":
+                group_index.append(f"{site}_{timestamp.year}")
+            elif group_mode == "site_month":
+                group_index.append(f"{site}_{timestamp.year}_{timestamp.month:02d}")
+            else:
+                raise ValueError("R_group must be one of 'site_year', 'site_month', or 'none'")
+
+        return np.asarray(group_index, dtype=object)
+
     def run(self):
         """
         Wrapper function to run all setup steps for the inversion.
@@ -145,49 +163,49 @@ class InversionSetupRun:
         self._map_flux_to_basis_function_grid()
         self._add_boundary_conditions_H()
 
+        site_indicator = []
+        obs_site_names = []
+
+        for i, site in enumerate(self.sites):
+            fpXflux_bf = self.fp_sens_dict_out[site]['H']
+            H_fp = (fpXflux_bf / self.flux_prior_sector['flux_bf'].sum(dim="flux_sector")).fillna(0)
+            H_bc = self.fp_sens_dict_out[site]['Hbc']
+            H_all = xr.concat([H_fp, H_bc.rename({'period_edge': 'region'})], dim='region').rename({'region': 'region_all'})
+
+            y = self.fp_sens_dict_out[site]['mf'].values
+            t = self.fp_sens_dict_out[site]['time'].values
+            y_err = np.sqrt(
+                self.fp_sens_dict_out[site]['mf_variability'].values ** 2
+                + self.fp_sens_dict_out[site]['mf_repeatability'].values ** 2
+                + self.fp_sens_dict_out[site]['mf_model_error'].values ** 2
+            )
+
+            site_indicator.extend([i] * len(t))
+            obs_site_names.extend([site] * len(t))
+
+            if i == 0:
+                H_fp_concat = H_fp.data
+                H_bc_concat = H_bc.data
+                H_concat = H_all
+                Y_concat = y
+                YError_concat = y_err
+                t_concat = t
+            else:
+                H_fp_concat = np.concatenate([H_fp_concat, H_fp.data], axis=0)
+                H_bc_concat = np.concatenate([H_bc_concat, H_bc.data], axis=0)
+                H_concat = xr.concat([H_concat, H_all], dim="time")
+                Y_concat = np.concatenate([Y_concat, y])
+                YError_concat = np.concatenate([YError_concat, y_err])
+                t_concat = np.concatenate([t_concat, t])
+
+        nH = H_fp_concat.shape[1]
+        nHB = H_bc_concat.shape[1]
+        bc_data_indicator = np.concatenate([
+            np.zeros(nH, dtype=int),
+            np.ones(nHB, dtype=int),
+        ])
+
         if self.inverse_method in ["analytical", "etkf"]:
-            site_indicator = []
-            bc_data_indicator = []
-
-            for i, site in enumerate(self.sites):
-                # H at this point if the flux X footprint data for each basis function
-                fpXflux_bf = self.fp_sens_dict_out[site]['H']
-
-                for j in range(len(self.fp_sens_dict_out[site]['time'])):
-                    site_indicator.append(i)
-
-                # Sensitivity matrix for site footprints and boundary conditions
-                H_fp = (fpXflux_bf / self.flux_prior_sector['flux_bf'].sum(dim="flux_sector")).fillna(0)
-                H_bc = self.fp_sens_dict_out[site]['Hbc']
-                H_all = xr.concat([H_fp, H_bc.rename({'period_edge': 'region'})], dim='region').rename({'region': 'region_all'})
-                
-                # BC data indicator: 0 for flux footprint data, 1 for BC data
-                nH = H_fp.shape[1]
-                nHB = H_bc.shape[1]
-                for j in range(nH):
-                    bc_data_indicator.append(0)
-                for j in range(nHB):
-                    bc_data_indicator.append(1)
-                
-                # Atmospheric mole fraction observations 
-                y = self.fp_sens_dict_out[site]['mf'].values
-                t = self.fp_sens_dict_out[site]['time'].values
-                y_err = np.sqrt(
-                    self.fp_sens_dict_out[site]['mf_variability'].values ** 2 
-                    + self.fp_sens_dict_out[site]['mf_repeatability'].values ** 2  
-                    + self.fp_sens_dict_out[site]['mf_model_error'].values ** 2
-                    ) 
-                
-                if i == 0:
-                    H_concat = H_all
-                    Y_concat = y
-                    YError_concat = y_err
-                    t_concat = t
-                else:
-                    H_concat = xr.concat([H_concat, H_all], dim="time")
-                    Y_concat = np.concatenate([Y_concat, y])
-                    YError_concat = np.concatenate([YError_concat, y_err])
-                    t_concat = np.concatenate([t_concat, t])
 
             # xa is the prior mean state and xa_error is the prior covariance (P).
             xa, xa_error = self._build_prior_state_and_covariance(nHB)
@@ -241,6 +259,76 @@ class InversionSetupRun:
                 }
 
             return data_dict_out
-        
-        else:
-            return 1
+
+        emis_prior = self.flux_prior_sector["flux_bf"].sum(dim="flux_sector").values.astype(np.float64)
+        bc_prior = np.ones(nHB, dtype=np.float64)
+
+        emis_scaling = self.inverse_kwargs.get(
+            "emis_scaling",
+            {"pdf": "lognormal", "mu": 0.2, "sigma": 0.5},
+        )
+        bc_scaling = self.inverse_kwargs.get(
+            "bc_scaling",
+            {"pdf": "truncatednormal", "mu": 1.0, "sigma": 0.5, "lower": 0.0},
+        )
+        R_additive = self.inverse_kwargs.get(
+            "R_additive",
+            {"pdf": "halfnormal", "sigma": 5.0},
+        )
+        R_group = self.inverse_kwargs.get("R_group", "site_year")
+
+        x_prior = make_x_prior_scaling(nH, emis_prior, name="x_prior", scaling_prior=emis_scaling)
+        bc_prior_builder = make_x_prior_scaling(nHB, bc_prior, name="bc_prior", scaling_prior=bc_scaling)
+        R_var = YError_concat / 20
+        R_group_index = self._build_group_index(obs_site_names, t_concat, R_group)
+
+        R_prior = make_R_prior_sigma_additive(
+            len(Y_concat),
+            R=R_var,
+            extra_prior=R_additive,
+            group_index=R_group_index,
+            name="R_prior",
+        )
+
+        idata = hbmcmc_inversion(
+            H_fp_concat,
+            Y_concat,
+            R_prior,
+            x_prior,
+            H_bc=H_bc_concat,
+            bc_prior_builder=bc_prior_builder,
+            n_samples=self.inverse_kwargs.get("n_samples", 1e4),
+            n_tune=self.inverse_kwargs.get("n_tune", 1e4),
+            n_chains=self.inverse_kwargs.get("n_chains", 4),
+            target_accept=self.inverse_kwargs.get("target_accept", 0.9),
+            nuts_sampler=self.inverse_kwargs.get("nuts_sampler", "pymc"),
+            nuts_sampler_kwargs=self.inverse_kwargs.get("nuts_sampler_kwargs"),
+            progressbar=self.inverse_kwargs.get("progressbar", True),
+            cores=self.inverse_kwargs.get("cores"),
+            return_trace=False,
+            random_seed=self.inverse_kwargs.get("random_seed", None),
+            use_mvnormal_if_matrix=self.inverse_kwargs.get("use_mvnormal_if_matrix", True),
+        )
+
+        xa = np.concatenate([emis_prior, bc_prior]).reshape(-1, 1)
+
+        data_dict_out = {
+            "time": t_concat,
+            "mf_obs": Y_concat,
+            "mf_obs_err": YError_concat,
+            "H": H_concat.data,
+            "xa": xa,
+            "site_indicator": np.array(site_indicator),
+            "sites": self.sites,
+            "bc_data_indicator": bc_data_indicator,
+            "inverse_method": self.inverse_method,
+            "idata": idata,
+            "R_var_base": R_var,
+            "R_group": R_group,
+            "R_group_index": R_group_index,
+            "x_prior_spec": x_prior._prior_spec,
+            "bc_prior_spec": bc_prior_builder._prior_spec,
+            "R_prior_spec": R_prior._prior_spec,
+        }
+
+        return data_dict_out

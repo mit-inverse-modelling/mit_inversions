@@ -357,9 +357,11 @@ def ETKF_inversion(H, y, R, xb_bar, Pin, N=1000, dist_type='gaussian', dist_para
     
     return xa_bar, Pa
 
-def hbmcmc_inversion(H, y, R_prior, x_prior_builder, 
-                     n_samples=1e5, 
-                     n_tune=4e4, 
+def hbmcmc_inversion(H_emis, y, R_prior, x_prior_builder,
+                     H_bc=None,
+                     bc_prior_builder=None,
+                     n_samples=1e4, 
+                     n_tune=1e4, 
                      n_chains=4,
                      #samplers = {"NUTS":["x_prior"], "Slice":["R_prior"]},
                      target_accept=0.9,
@@ -387,8 +389,8 @@ def hbmcmc_inversion(H, y, R_prior, x_prior_builder,
 
     Parameters
     ----------
-    H : array-like, shape (m, n)
-        Forward model / sensitivity (Jacobian) matrix.
+    H_emis : array-like, shape (m, n)
+        Emission sensitivity (Jacobian) matrix.
 
     y : array-like, shape (m,)
         Observations.
@@ -492,25 +494,37 @@ def hbmcmc_inversion(H, y, R_prior, x_prior_builder,
     # ------------------------------------------------------------------
     # 0) Input validation and basic consistency checks
     # ------------------------------------------------------------------
-    H = np.asarray(H)
-    if H.ndim != 2:
-        raise ValueError(f"H must be 2D (m,n), got ndim={H.ndim}")
+    H_emis = np.asarray(H_emis)
+    if H_emis.ndim != 2:
+        raise ValueError(f"H_emis must be 2D (m,n), got ndim={H_emis.ndim}")
 
-    m, n = H.shape
+    m, n = H_emis.shape
     if m <= 0 or n <= 0:
-        raise ValueError(f"H has invalid shape {H.shape}")
+        raise ValueError(f"H_emis has invalid shape {H_emis.shape}")
 
     y = np.asarray(y).ravel()
     if y.shape[0] != m:
         raise ValueError(f"y length {y.shape[0]} does not match H rows {m}")
 
-    if not np.isfinite(H).all():
-        raise ValueError("H contains NaN or Inf")
+    if not np.isfinite(H_emis).all():
+        raise ValueError("H_emis contains NaN or Inf")
     if not np.isfinite(y).all():
         raise ValueError("y contains NaN or Inf")
 
     if not callable(x_prior_builder):
         raise TypeError("x_prior_builder must be callable")
+
+    if (H_bc is None) != (bc_prior_builder is None):
+        raise ValueError("H_bc and bc_prior_builder must be provided together")
+
+    if H_bc is not None:
+        H_bc = np.asarray(H_bc)
+        if H_bc.ndim != 2:
+            raise ValueError(f"H_bc must be 2D (m,n_bc), got ndim={H_bc.ndim}")
+        if H_bc.shape[0] != m:
+            raise ValueError(f"H_bc rows {H_bc.shape[0]} do not match y length {m}")
+        if not callable(bc_prior_builder):
+            raise TypeError("bc_prior_builder must be callable")
 
     R_is_callable = callable(R_prior)
 
@@ -571,14 +585,25 @@ def hbmcmc_inversion(H, y, R_prior, x_prior_builder,
         # ---- Prior for x (possibly correlated) ----
         x_bundle = x_prior_builder()
 
-        # Forward model: y_pred = H x
+        # Forward model: y_pred = H_emis x + H_bc x_bc
         try:
-            y_pred = pm.math.dot(H, x_bundle.main)
+            y_pred = pm.math.dot(H_emis, x_bundle.main)
         except Exception as e:
             raise TypeError(
-                "Failed to compute y_pred = dot(H, x_prior). "
+                "Failed to compute y_pred = dot(H_emis, x_prior). "
                 "x_prior_builder() likely returned an incompatible object."
             ) from e
+
+        bc_bundle = None
+        if bc_prior_builder is not None:
+            bc_bundle = bc_prior_builder()
+            try:
+                y_pred = y_pred + pm.math.dot(H_bc, bc_bundle.main)
+            except Exception as e:
+                raise TypeError(
+                    "Failed to compute y_pred = dot(H_emis, x_prior) + dot(H_bc, bc_prior). "
+                    "bc_prior_builder() likely returned an incompatible object."
+                ) from e
 
         # ------------------------------------------------------------------
         # 3) Observation error model R
@@ -668,6 +693,9 @@ def hbmcmc_inversion(H, y, R_prior, x_prior_builder,
         
         samplers['NUTS']  += x_bundle.rvs.get("NUTS", [])
         samplers['Slice'] += x_bundle.rvs.get("Slice", [])
+        if bc_bundle is not None:
+            samplers['NUTS']  += bc_bundle.rvs.get("NUTS", [])
+            samplers['Slice'] += bc_bundle.rvs.get("Slice", [])
         if R_is_callable:
             samplers['NUTS']  += R_bundle.rvs.get("NUTS", [])
             samplers['Slice'] += R_bundle.rvs.get("Slice", [])

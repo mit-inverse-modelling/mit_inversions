@@ -79,3 +79,9 @@ data_dict = {
 #     },
 
 # Example for mcmc inversion
+#  "inversion": {
+#         "inverse_method": "mcmc",
+#         "emis_scaling": {"pdf":"lognormal","mu":0.2,"sigma":0.5},
+#         "bc_scaling": {"pdf":"truncatednormal","mu":1,"sigma":0.5,"lower":0}, 
+#         "R_additive": {"pdf": "halfnormal", "sigma": 5.0},
+#         "R_group": "site_year"

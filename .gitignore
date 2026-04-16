@@ -5,7 +5,8 @@ __pycache__/
 dist/
 build/
 .eggs/
-
+.codex
+mit_inversions/test_code.ipynb
 *.nc
 *.tif
 *.tiff
