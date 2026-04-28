@@ -1,3 +1,9 @@
+# data_filters.py
+# Created: 17 March 2026
+# Author: Eric Saboya
+# Copyright (c) 2026. All rights reserved.
+# License: MIT License
+
 import json
 import numpy as np
 import pandas as pd
@@ -62,8 +68,8 @@ class DataFiltering():
         print("nighttime: Selects data before start_hour and after end_hour")
         print("specific: Selects data from specific hour (start_hour) only")
         print("daily_median: Calculates daily median value")
+        print("local_ratio: Filters data based on local to domain-wide footprint influence")
         print("----------------------------------------------------------")
-
 
     def local_solar_time(self, site:str):
         """
@@ -78,7 +84,7 @@ class DataFiltering():
         with open("../data/site_data.json", "r") as f:
             site_data = json.load(f)
         
-        site_lon = site_data[site]["longitude"]
+        site_lon = site_data[site][list(site_data[site].keys())[0]].get("longitude")
 
         if site_lon>180:
             site_lon -= 360
@@ -140,50 +146,61 @@ class DataFiltering():
         else:
             dataset_out = dataset_temp
         return dataset_out        
-
-
-    # def daytime(self, site:str):
-    #     """
-    #     Method that retains data between start_hour and end_hour.
-    #     e.g., between 11.00 and 17.00 
-    #     """
-    #     hours = self.local_solar_time(site)
-    #     t_mask = [i for i, h in enumerate(hours) if h>=self.start_hour and h<=self.end_hour]
-        
-    #     dataset_temp = self.data[site][dict(time=t_mask)]
-    #     if self.keep_missing:    
-    #         dataset_out = dataset_temp.reindex_like(self.data[site])
-    #     else:
-    #         dataset_out = dataset_temp
-    #     return dataset_out
     
-    # def nighttime(self, site: str):
-    #     """
-    #     Method that retains data later than start_hour but earlier than end_hour.
-    #     Primarily used for retaining nighttime data.
-    #     e.g., between 23.00 and 02.00
-    #     """
-    #     hours = self.local_solar_time(site)
-    #     t_mask = [i for i, h in enumerate(hours) if h>=self.start_hour or h<=self.end_hour]
+    def local_ratio(self, site:str):
+        """
+        Method that filters data based on the ratio of local to domain-wide footprint influence.
+        """
+        # Load site data json file 
+        with open("mit_inversions/data/site_data.json", "r") as f:
+            site_data = json.load(f)
         
-    #     dataset_temp = self.data[site][dict(time=t_mask)]
-    #     if self.keep_missing:    
-    #         dataset_out = dataset_temp.reindex_like(self.data[site])
-    #     else:
-    #         dataset_out = dataset_temp
-    #     return dataset_out
-    
-    # def hour_specific(self, site:str):
-    #     """
-    #     Method that retains data from specific time only designated by start_hour.
-    #     e.g., start_hour=12 means only data from 12.00 are retained.
-    #     """
-    #     hours = self.local_solar_time(site)
-    #     t_mask = [i for i, h in enumerate(hours) if h==self.start_hour]
+        site_lon = site_data[site][list(site_data[site].keys())[0]].get("longitude")
+        site_lat = site_data[site][list(site_data[site].keys())[0]].get("latitude")
 
-    #     dataset_temp = self.data[site][dict(time=t_mask)]
-    #     if self.keep_missing:    
-    #         dataset_out = dataset_temp.reindex_like(self.data[site])
-    #     else:
-    #         dataset_out = dataset_temp
-    #     return dataset_out        
+        srr_lat = self.data[site]['latitude'].values
+        srr_lon = self.data[site]['longitude'].values
+
+        dx = np.abs(srr_lon[10] - srr_lon[9])
+        dy = np.abs(srr_lat[10] - srr_lat[9])
+
+        x_ind = np.where((srr_lon >= site_lon - dx/2) & (srr_lon <= site_lon + dx/2))[0]
+        y_ind = np.where((srr_lat >= site_lat - dy/2) & (srr_lat <= site_lat + dy/2))[0]
+        
+        local_ratio = np.zeros(len(self.data[site].time))
+
+        for t in range(len(local_ratio)):
+            local_sum = np.nansum(self.data[site]['srr'][t, y_ind, x_ind])
+            domain_sum = np.nansum(self.data[site]['srr'][t, :, :])
+            local_ratio[t] = local_sum / domain_sum if domain_sum > 0 else np.nan
+        
+        mask = local_ratio <= 0.10
+        dataset_temp = self.data[site][dict(time=mask)]
+        if self.keep_missing:    
+            dataset_out = dataset_temp.reindex_like(self.data[site])
+        else:            
+            dataset_out = dataset_temp
+        return dataset_out
+    
+    def run(self):
+        """
+        Method to run the specified data filters on the dataset.
+        """
+        filtered_data = {}
+
+        for site in self.data.keys():
+            for filter_method in self.filters:
+                if filter_method in ["daytime", "nighttime", "specific"]:
+                    site_data = self.timerange(site, filter_method)
+
+                elif filter_method == "daily_median":
+                    site_data = self.daily_median(site)
+
+                elif filter_method == "local_ratio":
+                    site_data = self.local_ratio(site)
+
+                else:
+                    raise ValueError(f"Unknown filter method: {filter_method}")
+                
+            filtered_data[site] = site_data
+        return filtered_data

@@ -11,7 +11,7 @@ import xarray as xr
 import numpy as np
 from .readers.observations import Observations
 from .readers.footprint_flux_reader import FootprintFlux
-# from .readers.data_filters import DataFiltering
+from .readers.data_filters import DataFiltering
 
 def data_merge(observations, fp_flux_grid, mf_sim, fps, tolerance="1H") -> dict:
     """
@@ -184,7 +184,13 @@ def forward_simulation(data_dict: dict)->dict:
     # Align forward simulations to observations
     data_aligned_dict = data_merge(observations, fp_flux_grid, mf_sim, fps)
 
-    # DATA FILTERING (optional)
+    # DATA FILTERING
+    if data_dict['observations']['data_filters'] is not None:
+        filter_methods = data_dict['observations']['data_filters']
+        if not isinstance(filter_methods, list):
+            filter_methods = [filter_methods]
+        data_aligned_dict = DataFiltering(dataset=data_aligned_dict, 
+                                          filters=filter_methods).run()
 
     # Average data into specified bins
     average = data_dict['observations']['average']
