@@ -1,13 +1,14 @@
-import numpy as np
-from typing import Dict, List
 import pymc as pm
-from dataclasses import dataclass
+import numpy as np
+import pytensor.tensor as pt
 
+from dataclasses import dataclass
+from typing import Dict, List
 
 @dataclass
 class PriorBundle:
-    main: pm.TensorVariable
-    rvs: Dict[str, List[pm.TensorVariable]]
+    main: pt.TensorVariable
+    rvs: Dict[str, List[pt.TensorVariable]]
 
 
 def _summarize_spec_value(value, *, max_preview=8):
