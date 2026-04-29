@@ -89,9 +89,9 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
     # Calculate basis function grid for inversion period 
     basis_function_grid = BasisFunctions(fp_flux_grid=fp_flux_grid_mean,
                                          bf_algorithm=bf_algorithm,
-                                         fp_flux_grid_error = fp_flux_grid_error,
+                                         fp_flux_grid_error=fp_flux_grid_error,
                                          target_regions=target_regions,
-                                        ).calculate()
+                                        ).run()
     
     # Create xarray dataset for basis function grid
     ds_basis_function = xr.Dataset(
