@@ -13,7 +13,7 @@ from .readers.observations import Observations
 from .readers.footprint_flux_reader import FootprintFlux
 from .readers.data_filters import DataFiltering
 
-def data_merge(observations, fp_flux_grid, mf_sim, fps, tolerance="1H") -> dict:
+def data_merge(observations, fp_flux_grid, mf_sim, fps, tolerance="1h") -> dict:
     """
     Merge observations and footprint flux data into a single dataset.
     """
@@ -142,6 +142,10 @@ def forward_simulation(data_dict: dict)->dict:
     """
     Run the forward simulation of the ARTEMIS framework using the aligned 
     observations and footprint fluxes data.
+
+    Parameters:
+    - data_dict (dict): 
+        A dictionary containing all necessary input data for the forward simulation, including:
     """
     footprints_cfg = data_dict.get('footprints', {})
     met_model = footprints_cfg.get('met_model')
