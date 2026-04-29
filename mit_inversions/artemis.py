@@ -15,7 +15,6 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-
 from mit_inversions.simulations import forward_simulation
 from mit_inversions.inversion.setup import InversionSetupRun
 from mit_inversions.sensitivity import inversion_grid_sensitivity
@@ -58,7 +57,7 @@ def artemis(data_dict_inputs: dict):
    # Calculate model error
    model_data_dict = ModelError(model_obs_dict, 
                                 model_error_method=data_dict_inputs['model_error_method'],
-                                ).calculate()
+                                ).run()
       
    # Basis functions and mapping regions to flux-footprint grid
    fp_sens_dict_out = inversion_grid_sensitivity(data_dict_inputs, model_data_dict)
