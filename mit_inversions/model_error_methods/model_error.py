@@ -12,7 +12,6 @@
 #   interface for calculating model error using different methods, allowing users to select 
 #   the most appropriate approach for their specific application
 
-
 import numpy as np 
 import xarray as xr 
 
@@ -24,6 +23,17 @@ class ModelError():
                  data: dict, 
                  model_error_method: str="pollution_event_error"
                  ):
+        """
+        Initialize the ModelError class with the model data and error method.
+
+        Parameters:
+        - data (dict): 
+            Dictionary containing the model data.
+        - model_error_method (str): 
+            The method to use for calculating model error.
+        
+        Use the .run() method for computing 
+        """
         self.model_data_dict = data
 
         expected_methods = [
@@ -78,8 +88,10 @@ class ModelError():
         delta_sim = sim.mean(dim="flux_sector")
         
         # Mask of where 3-sigma pollution events occur in the array
-        sig3mask = np.where(delta_obs>=np.std(delta_obs)*3)
-        
+        # sig3mask = np.where(delta_obs>=np.std(delta_obs)*3)
+        # Mask of where 2-sigma pollution events occur in the array (for more data points)
+        sig3mask = np.where(delta_obs>=np.std(delta_obs)*2)
+
         # Ratio of observation-to-simulated 3-sigma pollution events
         r = np.mean(delta_obs.values[sig3mask]/delta_sim.values[sig3mask])
 
@@ -88,7 +100,7 @@ class ModelError():
 
         return model_error
     
-    def calculate(self):
+    def run(self):
         """
         Wrapper function to calculate the model error using the selected method.
         """
