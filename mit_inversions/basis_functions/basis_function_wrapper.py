@@ -31,7 +31,7 @@ class BasisFunctions:
     regions are calculated by choice of algorithm, temporal masking,
     and spatial masking.
 
-    Use the .calculate() method for computing a basis function
+    Use the .run() method for computing a basis function
     grid from parsed footprint-flux grids. 
 
     NB. Basis functions will always be returned with land-sea 
@@ -116,7 +116,7 @@ class BasisFunctions:
         self.alpha = alpha
         self.smooth_sigma = smooth_sigma
 
-    def calculate(self):
+    def run(self):
         """
         Calculate basis function grid based on specified parameters.
 
