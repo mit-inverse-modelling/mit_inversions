@@ -459,10 +459,10 @@ class PostProcessingDataOutputs:
                 "stdev_mf_observed_variability": (["index"], self.mf_obs_variability),
                 "stdev_mf_model": (["index"], self.mf_model_error),
                 "stdev_mf_total": (["index"], self.mf_obs_err),
-                "mf_prior": (["index"], self.mf_sim),
-                "mf_posterior": (["index"], self.mf_sim_opt),
-                "mf_bc_prior": (["index"], self.mf_sim_bc),
-                "mf_bc_posterior": (["index"], self.mf_sim_opt_bc),
+                "mf_prior": (["index"], self.mf_sim.flatten()),
+                "mf_posterior": (["index"], self.mf_sim_opt.flatten()),
+                "mf_bc_prior": (["index"], self.mf_sim_bc.flatten()),
+                "mf_bc_posterior": (["index"], self.mf_sim_opt_bc.flatten()),
                 "stdev_mf_posterior": (["index"], self.mf_sim_opt_err),
                 }
             
