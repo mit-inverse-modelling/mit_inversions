@@ -192,21 +192,12 @@ class Observations():
     
     def plot_timeseries(self, 
                         myobs: dict, 
-                        start_date: str, 
-                        end_date: str, 
-                        species: str, 
                         unit: str="ppt"):
         """
         Plot the observations in a standard format for publications. 
         Parameters:
         - myobs (dict): 
             Dictionary of xarray.Dataset objects containing observations, keyed by site.
-        - start_date (str): 
-            Start date for the plot (e.g., "2000-01-01").
-        - end_date (str): 
-            End date for the plot (e.g., "2020-12-31").
-        - species (str):
-            Name of the species being plotted (e.g., "CFC-11").
         - unit (str): 
             Unit for the y-axis (e.g., "ppt", "ppb", "ppm"). Default is "ppt".
         """
@@ -250,14 +241,14 @@ class Observations():
         elif unit == "ppm":
             unit_sf = 1e6
 
-        time_difference = (pd.to_datetime(end_date) - pd.to_datetime(start_date)).days
+        time_difference = (pd.to_datetime(self.end_date) - pd.to_datetime(self.start_date)).days
 
         for site in myobs.keys():
             fig, ax = plt.subplots(figsize=(12, 6))
             ax.plot(myobs[site].time, myobs[site].mf * unit_sf, '.', lw=2, color='#A0B1bA')#, color='#009ADE')
-            ax.set_title(f"{site} - {species}", fontsize=14)
+            ax.set_title(f"{site} - {self.species}", fontsize=14)
             
-            ax.set_xlim((pd.to_datetime(start_date), pd.to_datetime(end_date)))
+            ax.set_xlim((pd.to_datetime(self.start_date), pd.to_datetime(self.end_date)))
             ax.set_xlabel("Time", fontsize=12)
             
             if time_difference <= 90:
@@ -266,7 +257,6 @@ class Observations():
                 ax.xaxis.set_minor_locator(mdates.MonthLocator())
 
             ax.set_ylabel(f"Atmospheric mole fraction ({unit})", fontsize=12)
-            ax.set_title(f"{site} - {species}", fontsize=14)
 
             fig.tight_layout()
             plt.show()
