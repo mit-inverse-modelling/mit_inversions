@@ -57,6 +57,7 @@ class InversionSetupRun:
         )
         xa_bc_base = np.ones(int(n_bc), dtype=np.float64)
 
+        # Get a priori scaling parameters from inverse_kwargs, defaults to 1 in all cases
         emis_scaling_mean = float(self.inverse_kwargs.get("emis_scaling_mean", 1.0))
         emis_scaling_sigma = float(self.inverse_kwargs.get("emis_scaling_sigma", 1.0))
         bc_scaling_mean = float(self.inverse_kwargs.get("bc_scaling_mean", 1.0))
@@ -172,8 +173,8 @@ class InversionSetupRun:
             H_bc = self.fp_sens_dict_out[site]['Hbc']
             H_all = xr.concat([H_fp, H_bc.rename({'period_edge': 'region'})], dim='region').rename({'region': 'region_all'})
 
-            y = self.fp_sens_dict_out[site]['mf'].values
             t = self.fp_sens_dict_out[site]['time'].values
+            y = self.fp_sens_dict_out[site]['mf'].values
             y_err = np.sqrt(
                 self.fp_sens_dict_out[site]['mf_variability'].values ** 2
                 + self.fp_sens_dict_out[site]['mf_repeatability'].values ** 2
@@ -213,6 +214,7 @@ class InversionSetupRun:
             if self.inverse_method == "analytical":
                 # Perform analytical inversion to get posterior flux estimates and uncertainties
                 xhat, ak, shat = analytical_inversion(H_concat.data, Y_concat, YError_concat / 20, xa, xa_error)
+
             else:
                 # ETKF expects a full observation covariance matrix.
                 etkf_n = int(self.inverse_kwargs.get("N", 1000))
