@@ -537,6 +537,16 @@ class FootprintFlux():
                     f"Search string: {self._file_search_pattern(site, inlet, met_model, yyyymm)}"
                 )
 
+            # Add check to ensure all loaded datasets have the same dimensions and coordinates before concatenation
+            base_dims = site_fps[0].dims
+            base_coords = {dim: site_fps[0][dim].values for dim in base_dims}
+            for fp in site_fps[1:]:
+                if fp.dims != base_dims:
+                    raise ValueError(f"Dimension mismatch in footprint files for {site}: expected {base_dims}, got {fp.dims}")
+                for dim in base_dims:
+                    if not np.array_equal(fp[dim].values, base_coords[dim]):
+                        raise ValueError(f"Coordinate mismatch in dimension '{dim}' for footprint files of {site}")
+
             self.footprints[site] = xr.concat(site_fps, dim='time')
         return self.footprints
         
