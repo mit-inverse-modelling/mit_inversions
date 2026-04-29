@@ -1,5 +1,20 @@
-# RegionalSum.py
+# RengionalSum.py
 # Created: 2 March 2026
+# Author: Eric Saboya
+# Copyright (c) 2026. All rights reserved.
+# License: MIT License
+# 
+# Description: 
+#   Basis function algorithm for creating basis function regions of footprint-flux fields.
+#   The Regional Sum algorithm creates regions of the footprint-flux field by recursively
+#   splitting the field into quadrants and summing the values in each quadrant until a
+#   target number of regions is reached. The algorithm alternates between splitting in the
+#   X and Y directions to create more compact regions, and optimizes the split value to
+#   achieve the target number of regions within a specified tolerance. The resulting basis
+#   function grid is a 2D array where each unique value corresponds to a different basis
+#   function region. This algorithm is computationally efficient and can be applied to large
+#   footprint-flux fields, but may not capture fine-scale variability as well as more complex
+#   algorithms like IWASP.
 
 import numpy as np
 
@@ -24,15 +39,15 @@ class RegionalSum:
         - fp_flux_grid (np.ndarray): 
             2D array of footprint-flux values.
         - target_regions (int):
-            Number of basis function regions to optimize for in the algorithm
+            Number of basis function regions to optimize for in the algorithm.
+            Defaults to 40.
         - max_iter (int):
-            Maximum number of iterations to run the algorithm
+            Maximum number of iterations to run the algorithm.
+            Defaults to 1000.
         """
-
         self.fpXflux_grid = fp_flux_grid
         self.target_regions = target_regions
         self.max_iter = max_iter
-
 
     def bucket_value_split(self, grid, bucket, offset_x=0, offset_y=0, depth=0):
         """
@@ -53,7 +68,6 @@ class RegionalSum:
             Value used to determine geometric direction
             for basis function split. 
         """
-
         # Stop condition
         if np.sum(grid) <= bucket or grid.shape == (1,1):
             return [(offset_y, offset_y + grid.shape[0],

@@ -1,5 +1,17 @@
 # IESD.py
 # Created: 2 March 2026
+# Author: Eric Saboya
+# Copyright (c) 2026. All rights reserved.
+# License: MIT License
+# 
+# Description: 
+#   Basis function algorithm for creating basis function regions of footprint-flux fields.
+#   The Information-Weighted Adaptive Spatial Discretization (IWASP) algorithm creates
+#   regions of equal information content in the footprint-flux field by applying a watershed
+#   segmentation to a composite field that weights the footprint-flux field by its error.
+#   The algorithm then iteratively splits high-variability regions and merges low-variability
+#   regions until a target number of regions is reached or the variability threshold is met.
+
 
 import numpy as np 
 from scipy.ndimage import gaussian_filter, sobel
@@ -9,7 +21,6 @@ from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 from skimage.morphology import disk
 from skimage.filters import rank
-
 from sklearn.cluster import KMeans
 
 class IWASP:
