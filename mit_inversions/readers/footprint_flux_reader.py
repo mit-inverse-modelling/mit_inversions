@@ -538,16 +538,38 @@ class FootprintFlux():
                 )
 
             # Add check to ensure all loaded datasets have the same dimensions and coordinates before concatenation
-            base_dims = site_fps[0].dims
-            base_coords = {dim: site_fps[0][dim].values for dim in base_dims}
+            base_lat = site_fps[0]['latitude']
+            base_lon = site_fps[0]['longitude']
+        
+            base_coords = {"latitude": base_lat, "longitude": base_lon}
             for fp in site_fps[1:]:
-                if fp.dims != base_dims:
-                    raise ValueError(f"Dimension mismatch in footprint files for {site}: expected {base_dims}, got {fp.dims}")
-                for dim in base_dims:
+                if fp.latitude.data.all() != base_lat.data.all():
+                    raise ValueError(f"Latitude dimension mismatch in footprint files for {site}.")
+                
+                if fp.longitude.data.all() != base_lon.data.all():
+                    raise ValueError(f"Longitude dimension mismatch in footprint files for {site}.")
+                
+                for dim in ['latitude', 'longitude']:
                     if not np.array_equal(fp[dim].values, base_coords[dim]):
                         raise ValueError(f"Coordinate mismatch in dimension '{dim}' for footprint files of {site}")
 
             self.footprints[site] = xr.concat(site_fps, dim='time')
+
+        # Check consistency of domain dimensions and coordinates across all sites
+        for i, site in enumerate(self.footprints.keys()):
+            if i == 0:
+                base_lat_0 = self.footprints[site]['latitude'].values[0]
+                base_lon_0 = self.footprints[site]['longitude'].values[0]
+
+            else:
+                site_lat_0 = self.footprints[site]['latitude'].values[0]
+                site_lon_0 = self.footprints[site]['longitude'].values[0]
+
+                if site_lat_0 != base_lat_0:
+                    raise ValueError(f"Latitude values do not match across footprint files for {site}.")
+                if site_lon_0 != base_lon_0:
+                    raise ValueError(f"Longitude values do not match across footprint files for {site}.")
+            
         return self.footprints
         
     def get_flux(self, footprint_data: xr.Dataset):
