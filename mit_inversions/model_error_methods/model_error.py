@@ -90,7 +90,7 @@ class ModelError():
         # Mask of where 3-sigma pollution events occur in the array
         # sig3mask = np.where(delta_obs>=np.std(delta_obs)*3)
         # Mask of where 2-sigma pollution events occur in the array (for more data points)
-        sig3mask = np.where(delta_obs>=np.std(delta_obs)*2)
+        sig3mask = np.intersect1d(np.where(delta_obs <= np.std(delta_obs) * 2), np.where(delta_obs >= np.std(delta_obs) * 1))
 
         # Ratio of observation-to-simulated 3-sigma pollution events
         r = np.mean(delta_obs.values[sig3mask]/delta_sim.values[sig3mask])
