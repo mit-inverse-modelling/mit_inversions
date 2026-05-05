@@ -166,6 +166,7 @@ class InversionSetupRun:
 
         site_indicator = []
         obs_site_names = []
+        bc_data_indicator = []
 
         for i, site in enumerate(self.sites):
             fpXflux_bf = self.fp_sens_dict_out[site]['H']
@@ -183,6 +184,8 @@ class InversionSetupRun:
 
             site_indicator.extend([i] * len(t))
             obs_site_names.extend([site] * len(t))
+            bc_data_indicator.extend([0] * H_fp.shape[1])
+            bc_data_indicator.extend([1] * H_bc.shape[1])
 
             if i == 0:
                 H_fp_concat = H_fp.data
@@ -201,10 +204,12 @@ class InversionSetupRun:
 
         nH = H_fp_concat.shape[1]
         nHB = H_bc_concat.shape[1]
-        bc_data_indicator = np.concatenate([
-            np.zeros(nH, dtype=int),
-            np.ones(nHB, dtype=int),
-        ])
+        bc_data_indicator = np.array(bc_data_indicator, dtype=int)
+
+        # bc_data_indicator = np.concatenate([
+            # np.zeros(nH, dtype=int),
+            # np.ones(nHB, dtype=int),
+        # ])
 
         if self.inverse_method in ["analytical", "etkf"]:
 
@@ -213,7 +218,7 @@ class InversionSetupRun:
 
             if self.inverse_method == "analytical":
                 # Perform analytical inversion to get posterior flux estimates and uncertainties
-                xhat, ak, shat = analytical_inversion(H_concat.data, Y_concat, YError_concat / 20, xa, xa_error)
+                xhat, ak, shat = analytical_inversion(H_concat.data, Y_concat, YError_concat, xa, xa_error)
 
             else:
                 # ETKF expects a full observation covariance matrix.
@@ -256,7 +261,7 @@ class InversionSetupRun:
                 "shat": shat,
                 "site_indicator": np.array(site_indicator),
                 "sites": self.sites,
-                "bc_data_indicator": np.array(bc_data_indicator),
+                "bc_data_indicator": bc_data_indicator,
                 "inverse_method": self.inverse_method,
                 }
 
