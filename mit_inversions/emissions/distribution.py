@@ -8,7 +8,7 @@ import xarray as xr
 
 from ..config import data_path, get_data_path
 from ..data.grid_constants import TARGET_LAT, TARGET_LON
-from ..data.utils import seconds_per_year, GG_TO_G
+from ..data.utils import seconds_per_year, GG_TO_G, grid_cell_area_m2
 from ..readers.masks import get_countries_for_grid
 
 
@@ -24,14 +24,33 @@ def _load_proxy(path, var_name, lats, lons):
             if not candidates:
                 raise KeyError(f"No data variables in {path}")
             var_name = candidates[0]
+        
         target_lons = np.asarray(lons, dtype=np.float64).copy()
         source_lons = np.asarray(ds[lon_dim].values, dtype=np.float64)
-        if np.nanmax(source_lons) <= 180.0 and np.any(target_lons > 180.0):
-            target_lons[target_lons > 180.0] -= 360.0
-        elif np.nanmin(source_lons) >= 0.0 and np.any(target_lons < 0.0):
-            target_lons[target_lons < 0.0] += 360.0
+
+        if np.nanmin(source_lons) < 0.0 and np.any(target_lons > 180.0):
+            mtohe = source_lons < 0
+            source_lons[mtohe] += 360.0
+            ordinds = np.argsort(source_lons)
+            source_lons = source_lons[ordinds]
+            ds[var_name].values = ds[var_name].values[:, ordinds]
+            # ds[lon_dim].values = source_lons
+            ds = ds.assign_coords({lon_dim: source_lons})
+
+        elif np.nanmax(source_lons) >= 180.0 and np.any(target_lons < 0.0):
+            mtohe = source_lons >= 180.0
+            source_lons[mtohe] -= 360.0
+            ordinds = np.argsort(source_lons)
+            source_lons = source_lons[ordinds]
+            ds[var_name].values = ds[var_name].values[:, ordinds]
+            # ds[lon_dim].values = source_lons
+            ds = ds.assign_coords({lon_dim: source_lons})
+
+        else:
+            ds[var_name].values = ds[var_name].values
+
         da = ds[var_name].interp(
-            {lat_dim: lats, lon_dim: target_lons},
+            {lat_dim: lats, lon_dim: lons},
             method="nearest",
         )
         return np.asarray(da.values, dtype=np.float64)
@@ -113,9 +132,11 @@ def _compute_weights(method, lats, lons, area_m2, nightlights_path=None, populat
     area_km2 = area_m2 / 1e6
     if method == "uniform":
         weights = area_km2
+        
     elif method == "uniform_over_land":
         codes = get_countries_for_grid(lons, lats, base_data_dir=base_data_dir).values
         weights = np.where(codes != "OCN", area_km2, 0.0)
+    
     elif method == "nightlights":
         path = Path(nightlights_path) if nightlights_path else _default_proxy_path(base_data_dir, "masks/reference/nightlights_0.1deg.nc")
         if not path.exists():
@@ -123,7 +144,8 @@ def _compute_weights(method, lats, lons, area_m2, nightlights_path=None, populat
                 f"Night lights proxy file not found: {path}. Generate proxy file first."
             )
         proxy = _load_proxy(path, "stable_lights", lats, lons)
-        weights = np.where(np.isfinite(proxy) & (proxy > 0), proxy, 0.0) * area_km2
+        weights = np.where(np.isfinite(proxy) & (proxy >= 0), proxy, 0.0) * area_km2
+    
     else:
         path = Path(population_path) if population_path else _default_proxy_path(base_data_dir, "masks/reference/population_0.1deg.nc")
         if not path.exists():
@@ -131,7 +153,8 @@ def _compute_weights(method, lats, lons, area_m2, nightlights_path=None, populat
                 f"Population proxy file not found: {path}. Generate proxy file first."
             )
         proxy = _load_proxy(path, "population_density", lats, lons)
-        weights = np.where(np.isfinite(proxy) & (proxy > 0), proxy, 0.0) * area_km2
+
+        weights = np.where(np.isfinite(proxy) & (proxy >= 0), proxy, 0.0).astype(float) * area_km2
 
     weight_sum = float(np.nansum(weights))
     if weight_sum <= 0:
@@ -159,7 +182,7 @@ def generate_emissions_distribution(
     Parameters
     ----------
     total_Gg : float
-        Total emissions in Gg for the specified region/grid.
+        Total emissions in Gg for the specified region/grid per year.
     method : str
         One of: "nightlights", "population", "uniform", "uniform_over_land".
     year : int, optional
@@ -200,9 +223,10 @@ def generate_emissions_distribution(
         - grid_cell_area_m2: (latitude, longitude), area in m2
     """
     if lats is None:
-        lats = TARGET_LAT
+        raise ValueError("lats must be provided as a 1D array of target grid centres.")
     if lons is None:
-        lons = TARGET_LON
+        raise ValueError("lons must be provided as a 1D array of target grid centres.")
+    
     lats = np.asarray(lats, dtype=np.float64)
     lons = np.asarray(lons, dtype=np.float64)
     if lats.ndim != 1 or lons.ndim != 1:
@@ -273,9 +297,10 @@ def generate_emissions_distribution(
 
         weights = float(region_portion) * inside_weights + (1.0 - float(region_portion)) * outside_weights
 
-    total_g = float(total_Gg) * GG_TO_G
+    total_g = float(total_Gg * GG_TO_G)
     spy = seconds_per_year(year)
-    flux = (total_g * weights / (area_m2 * spy)).astype(np.float32)
+    # flux = (total_g * weights / (area_m2 * spy)).astype(np.float32)
+    flux =  ((total_g * weights) / area_m2 / spy).astype(np.float32)
 
     ds = xr.Dataset(
         {
