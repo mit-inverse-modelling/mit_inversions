@@ -176,16 +176,13 @@ class InversionSetupRun:
 
             t = self.fp_sens_dict_out[site]['time'].values
             y = self.fp_sens_dict_out[site]['mf'].values
-            y_err = np.sqrt(
-                self.fp_sens_dict_out[site]['mf_variability'].values ** 2
-                + self.fp_sens_dict_out[site]['mf_repeatability'].values ** 2
-                + self.fp_sens_dict_out[site]['mf_model_error'].values ** 2
-            )
+            y_err = np.sqrt(self.fp_sens_dict_out[site]['mf_variability'].values ** 2 + self.fp_sens_dict_out[site]['mf_repeatability'].values ** 2 + self.fp_sens_dict_out[site]['mf_model_error'].values ** 2)
 
             site_indicator.extend([i] * len(t))
             obs_site_names.extend([site] * len(t))
-            bc_data_indicator.extend([0] * H_fp.shape[1])
-            bc_data_indicator.extend([1] * H_bc.shape[1])
+            if i==0:
+                bc_data_indicator.extend([0] * H_fp.shape[1])
+                bc_data_indicator.extend([1] * H_bc.shape[1])
 
             if i == 0:
                 H_fp_concat = H_fp.data
@@ -206,15 +203,17 @@ class InversionSetupRun:
         nHB = H_bc_concat.shape[1]
         bc_data_indicator = np.array(bc_data_indicator, dtype=int)
 
-        # bc_data_indicator = np.concatenate([
-            # np.zeros(nH, dtype=int),
-            # np.ones(nHB, dtype=int),
-        # ])
-
         if self.inverse_method in ["analytical", "etkf"]:
 
             # xa is the prior mean state and xa_error is the prior covariance (P).
-            xa, xa_error = self._build_prior_state_and_covariance(nHB)
+            xa, xa_error = self._build_prior_state_and_covariance(nHB)  
+
+            # print("xa", np.max(xa))
+            # print("xa_error", np.max(xa_error))
+            # print("H_concat", np.max(H_concat.data))
+            # print("Y_concat", np.max(Y_concat))
+            # print("YError_concat", np.nanmax(YError_concat))
+
 
             if self.inverse_method == "analytical":
                 # Perform analytical inversion to get posterior flux estimates and uncertainties
@@ -229,7 +228,7 @@ class InversionSetupRun:
                 etkf_random_seed = self.inverse_kwargs.get("random_seed", 42)
                 # Keep the same R convention used by analytical_inversion in this workflow:
                 # YError_concat / 20 is interpreted as diagonal variances.
-                R_etkf = np.diag(YError_concat / 20)
+                R_etkf = np.diag(YError_concat)
 
                 xhat, shat = ETKF_inversion(
                     H_concat.data,
