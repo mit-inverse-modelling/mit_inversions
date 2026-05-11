@@ -25,6 +25,7 @@ from iris.analysis import AreaWeighted
 
 from ..config import get_data_path
 from ..emissions.distribution import generate_emissions_distribution
+from ..data.utils import grid_cell_area_m2
 
 class FootprintFlux():
     """
@@ -418,12 +419,48 @@ class FootprintFlux():
         lat_fp = footprint_data['latitude'].values.copy()
         lon_fp = footprint_data['longitude'].values.copy()
         
-        # Adjust longitude values if necessary (e.g., from 0-360 to -180 to 180)
-        mtohe = lon_in > 180
-        lon_in[mtohe] = lon_in[mtohe] - 360
-        ordinds = np.argsort(lon_in)
-        lon_in = lon_in[ordinds]
-        flux_data['fluxes'].values = flux_data['fluxes'].values[:, ordinds]
+        # We want to ensure data are on a lat-lon grid that matches the footprint grid. 
+        lon_in_min = np.nanmin(lon_in)
+        lon_in_max = np.nanmax(lon_in)
+        lon_fp_min = np.nanmin(lon_fp)
+        lon_fp_max = np.nanmax(lon_fp)
+
+        # Sceanrio I: Both flux and footprint longitudes are in the same range (either 0-360 or -180 to 180), so no adjustment is needed.
+        if (lon_in_min<0 and lon_fp_min<0) or (lon_in_max>180 and lon_fp_max>180):
+            flux_data['fluxes'].values = flux_data['fluxes'].values
+
+        elif (lon_in_min<0 and lon_fp_max>180):
+             # Scenario II: One dataset is in 0-360 and the other is in -180 to 180, so we need to adjust one of them to match the other.
+             # We will adjust the flux longitudes to match the footprint longitudes.
+             mtohe = lon_in < 180
+             lon_in[mtohe] = lon_in[mtohe] + 360
+             ordinds = np.argsort(lon_in)
+             lon_in = lon_in[ordinds]
+             flux_data['fluxes'].values = flux_data['fluxes'].values[:, ordinds]
+        
+        elif (lon_in_max>180 and lon_fp_min<0):
+            mtohe = lon_in > 180
+            lon_in[mtohe] = lon_in[mtohe] - 360
+            ordinds = np.argsort(lon_in)
+            lon_in = lon_in[ordinds]
+            flux_data['fluxes'].values = flux_data['fluxes'].values[:, ordinds]
+
+
+        # Adjust footprint longitude values if necessary (e.g., from 0-360 to -180 to 180)
+        # mtohe = lon_fp > 180
+        # lon_fp[mtohe] = lon_fp[mtohe] - 360
+        # ordinds = np.argsort(lon_fp)
+        # lon_fp = lon_fp[ordinds]
+
+        # Adjust flux longitude values if necessary (e.g., from 0-360 to -180 to 180)
+        # mtohe = lon_in > 180
+        # lon_in[mtohe] = lon_in[mtohe] - 360
+        # ordinds = np.argsort(lon_in)
+        # lon_in = lon_in[ordinds]
+
+        # flux_data['fluxes'].values = flux_data['fluxes'].values[:, ordinds]
+        flux_data['fluxes'].values = flux_data['fluxes'].values
+
 
         # Define the flux cube
         cube_lat_in = DimCoord(lat_in, 
@@ -692,11 +729,18 @@ class FootprintFlux():
         for flux_key in flux_data.keys():
             if self._grids_match(flux_data[flux_key], fp_for_regridding):
                 regridded_flux = flux_data[flux_key]["fluxes"].values.copy()
+                area = grid_cell_area_m2(flux_data[flux_key]['lat'].values, flux_data[flux_key]['lon'].values)
+                regridded_flux = regridded_flux * area['area'].values
+
             else:
+                area = grid_cell_area_m2(flux_data[flux_key]['lat'].values, flux_data[flux_key]['lon'].values)
+                flux_data[flux_key]["fluxes"].values = flux_data[flux_key]["fluxes"].values * area['area'].values
                 regridded_flux, _ = self.regrid_flux_to_footprint(flux_data[flux_key], fp_for_regridding)
 
+            area_regridded = grid_cell_area_m2(fp_for_regridding['latitude'].values, fp_for_regridding['longitude'].values)
+
             # Convert from g/m2/s to mol/m2/s
-            regridded_flux = regridded_flux / self.species_molar_mass()
+            regridded_flux = (regridded_flux / self.species_molar_mass()) / area_regridded['area'].values
 
             ds_flux = xr.Dataset({"flux": (["latitude", "longitude"], regridded_flux)},
                                  coords={"latitude": fp_for_regridding['latitude'].values,
