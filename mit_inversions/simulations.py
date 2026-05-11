@@ -109,7 +109,7 @@ def data_merge(observations, fp_flux_grid, mf_sim, fps, tolerance="1h") -> dict:
         # Subset observations to same times
         obs_subset = observations[site].sel(time=common_times_sorted)
         
-        # ✅ Verify all have same time dimension
+        # Verify all have same time dimension
         assert len(mf_sim_aligned.time) == len(fp_flux_grid_aligned.time) == len(srr_aligned.time), \
             f"Time dimension mismatch after alignment for {site}"
         
