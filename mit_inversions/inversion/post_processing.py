@@ -337,7 +337,6 @@ class PostProcessingDataOutputs:
 
         # simulated mole fractions - stacked by site 
         self.mf_sim = self.H.data @ self.xa
-        
         self.mf_sim_opt = self.H.data @ self.xhat.flatten()
         
         self.mf_sim_opt_err = (self.H.data @ self.shat).sum(axis=1)
@@ -409,10 +408,10 @@ class PostProcessingDataOutputs:
             if self.bc_indicator[i] == 0:  # Only consider non-bc grid points
                 indy, indx = np.where(bf_grid == xa_count)
                 for j in range(len(indy)):
-                    flux_post[indy[j], indx[j]] += float(self.xhat[i,0]) #/ len(indy)
-                    flux_prior[indy[j], indx[j]] += float(self.xa[i,0]) #/ len(indy)
-                    flux_post_lower_percentile[indy[j], indx[j]] += float(self.shat[i, i]) #/ len(indy)
-                    flux_post_upper_percentile[indy[j], indx[j]] += float(self.shat[i, i]) #/ len(indy)
+                    flux_post[indy[j], indx[j]] += float(self.xhat[i,0]) / len(indy)
+                    flux_prior[indy[j], indx[j]] += float(self.xa[i,0]) / len(indy)
+                    flux_post_lower_percentile[indy[j], indx[j]] += float(self.shat[i, i]) / len(indy)
+                    flux_post_upper_percentile[indy[j], indx[j]] += float(self.shat[i, i]) / len(indy)
                 xa_count += 1
 
         mycoords = {'latitude': self.fp_sens_dict_out['.basis_function_grid']['latitude'].values,
@@ -440,13 +439,13 @@ class PostProcessingDataOutputs:
         country_codes = get_countries_for_grid(grid_lon, grid_lat)
 
         # Get country info table
-        country_info = list(set(country_codes.copy().data.ravel()))
+        country_info = np.sort(list(set(country_codes.copy().data.ravel())))
 
         # Calculate the geographical area of each grid cell in m2
         print("Calculating grid cell areas ...")
         grid_area = grid_cell_area_m2(grid_lat, grid_lon)
         self.grid_area = grid_area
-        species_mm = 1/molarmasses[self.species]
+        species_mm = molarmasses[self.species]
 
         year = pd.to_datetime(self.start_date).year
         seconds_year = seconds_per_year(year)
@@ -455,6 +454,7 @@ class PostProcessingDataOutputs:
         # Convert fluxes to emissions in g/year for each grid cell
         posterior_emissions = self.flux_post['flux'] * grid_area['area'] * seconds_year * species_mm
         prior_emissions = self.flux_prior['flux'] * grid_area['area'] * seconds_year * species_mm
+        
         posterior_emissions_lower = self.flux_post_error[0] * grid_area['area'].values * seconds_year * species_mm
         posterior_emissions_upper = self.flux_post_error[1] * grid_area['area'].values * seconds_year * species_mm
 
@@ -466,12 +466,15 @@ class PostProcessingDataOutputs:
         country_alpha3 = []
 
         for code in country_info:
-            mask_y, mask_x = np.where(country_codes.values == code)
-            country_prior_emi = np.sum(prior_emissions.values[mask_y, mask_x])
-            country_posterior_emi = np.sum(posterior_emissions.values[mask_y, mask_x])
-            
-            country_posterior_emissions_lower.append(np.sum(posterior_emissions_lower[mask_y, mask_x]))
-            country_posterior_emissions_upper.append(np.sum(posterior_emissions_upper[mask_y, mask_x]))
+            mask = (country_codes == code) * 1.0
+            country_prior_emi = (prior_emissions.values * mask).sum()
+
+            # mask_y, mask_x = np.where(country_codes.values == code)
+            # country_prior_emi = np.sum(prior_emissions.values[mask_y, mask_x])
+            country_posterior_emi = (posterior_emissions.values * mask).sum()
+
+            country_posterior_emissions_lower.append((posterior_emissions_lower * mask).sum())
+            country_posterior_emissions_upper.append((posterior_emissions_upper * mask).sum())
 
             country_prior_emissions.append(country_prior_emi)
             country_posterior_emissions.append(country_posterior_emi)
@@ -699,8 +702,8 @@ class PostProcessingDataOutputs:
                 "latitude": (["latitude"], self.flux_post['latitude'].values),
                 "time": (["time"], time),
                 "time_bnds": (["time", "nbnds"], time_bnds),
-                "flux_total_prior": (["time", "latitude", "longitude"], self.flux_prior.reshape(1, self.flux_prior.shape[0], self.flux_prior.shape[1])),
-                "flux_total_posterior": (["time", "latitude", "longitude"], self.flux_post.reshape(1, self.flux_post.shape[0], self.flux_post.shape[1])),
+                "flux_total_prior": (["time", "latitude", "longitude"], self.flux_prior['flux'].values.reshape(1, self.flux_prior['flux'].shape[0], self.flux_prior['flux'].shape[1])),
+                "flux_total_posterior": (["time", "latitude", "longitude"], self.flux_post['flux'].values.reshape(1, self.flux_post['flux'].shape[0], self.flux_post['flux'].shape[1])),
 
                     # "percentile_flux_total_prior": ([("time", "percentile", "latitude", "longitude")], self.xa_percentiles),
                 "percentile_flux_total_posterior": (["time", "percentile", "latitude", "longitude"], flux_posterior_percentiles),
