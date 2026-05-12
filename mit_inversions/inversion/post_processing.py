@@ -9,7 +9,7 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
 from mit_inversions.data.utils import grid_cell_area_m2, seconds_per_year
-from mit_inversions.readers.masks import get_countries_for_grid, get_country_info
+from mit_inversions.readers.masks import get_countries_for_grid, get_country_info, get_regions_for_grid
 
 
 class PostProcessing:
@@ -261,6 +261,7 @@ class PostProcessingDataOutputs:
                  end_date: str,
                  inversion_results: dict,
                  fp_sens_dict_out: dict,
+                 flux_grid_prior: xr.Dataset,
                  atmospheric_transport_model: str, 
                  inversion_method: str,
                  output_dir: str,                 
@@ -288,6 +289,7 @@ class PostProcessingDataOutputs:
         self.inversion_results = inversion_results
         self.output_dir = output_dir
         self.fp_sens_dict_out = fp_sens_dict_out
+        self.flux_grid_prior = flux_grid_prior
         self.atmospheric_transport_model = atmospheric_transport_model
         self.inversion_method = inversion_method
 
@@ -339,7 +341,7 @@ class PostProcessingDataOutputs:
         self.mf_sim = self.H.data @ self.xa
         self.mf_sim_opt = self.H.data @ self.xhat.flatten()
         
-        self.mf_sim_opt_err = (self.H.data @ self.shat).sum(axis=1)
+        self.mf_sim_opt_err = (np.diag(self.H.data @ self.shat @ np.transpose(self.H.data)) + self.mf_model_error**2)**0.5
         self.mf_opt_percentile = np.array([self.mf_sim_opt-self.mf_sim_opt_err, self.mf_sim_opt+self.mf_sim_opt_err]).T
 
         self.sites = self.inversion_results['sites']
@@ -399,7 +401,7 @@ class PostProcessingDataOutputs:
         bf_grid = self.fp_sens_dict_out[".basis_function_grid"].values
 
         flux_post = np.zeros(bf_grid.shape)
-        flux_prior = np.zeros(bf_grid.shape) 
+        flux_prior = self.flux_grid_prior.flux.sum("flux_sector").values
         flux_post_lower_percentile = np.zeros(bf_grid.shape)
         flux_post_upper_percentile = np.zeros(bf_grid.shape)
 
@@ -408,10 +410,9 @@ class PostProcessingDataOutputs:
             if self.bc_indicator[i] == 0:  # Only consider non-bc grid points
                 indy, indx = np.where(bf_grid == xa_count)
                 for j in range(len(indy)):
-                    flux_post[indy[j], indx[j]] += float(self.xhat[i,0]) / len(indy)
-                    flux_prior[indy[j], indx[j]] += float(self.xa[i,0]) / len(indy)
-                    flux_post_lower_percentile[indy[j], indx[j]] += float(self.shat[i, i]) / len(indy)
-                    flux_post_upper_percentile[indy[j], indx[j]] += float(self.shat[i, i]) / len(indy)
+                    flux_post[indy[j], indx[j]] = flux_prior[indy[j], indx[j]] * float(self.xhat[i,0]) 
+                    flux_post_lower_percentile[indy[j], indx[j]] = flux_prior[indy[j], indx[j]] *  float(self.shat[i, i]) 
+                    flux_post_upper_percentile[indy[j], indx[j]] = flux_prior[indy[j], indx[j]] * float(self.shat[i, i]) 
                 xa_count += 1
 
         mycoords = {'latitude': self.fp_sens_dict_out['.basis_function_grid']['latitude'].values,
@@ -424,7 +425,7 @@ class PostProcessingDataOutputs:
         # self.longitude_grid = self.fp_sens_dict_out['.basis_function_grid']['longitude'].values
         # self.latitude_grid = self.fp_sens_dict_out['.basis_function_grid']['latitude'].values
 
-    def calculate_country_emissions(self)->xr.Dataset:
+    def calculate_country_emissions(self, subregion=None)->xr.Dataset:
         """
         Method to calculate emission totals for countries in model domain
         """
@@ -436,7 +437,10 @@ class PostProcessingDataOutputs:
         grid_lon = self.fp_sens_dict_out[".basis_function_grid"]["longitude"].values
 
         # Get country codes for each grid cell
-        country_codes = get_countries_for_grid(grid_lon, grid_lat)
+        if subregion == None:
+            country_codes = get_countries_for_grid(grid_lon, grid_lat)
+        else:
+            country_codes = get_regions_for_grid(subregion, grid_lon, grid_lat)
 
         # Get country info table
         country_info = np.sort(list(set(country_codes.copy().data.ravel())))
@@ -452,11 +456,14 @@ class PostProcessingDataOutputs:
         print("Calculating country emissions ...")
 
         # Convert fluxes to emissions in g/year for each grid cell
-        posterior_emissions = self.flux_post['flux'] * grid_area['area'] * seconds_year * species_mm
         prior_emissions = self.flux_prior['flux'] * grid_area['area'] * seconds_year * species_mm
         
-        posterior_emissions_lower = self.flux_post_error[0] * grid_area['area'].values * seconds_year * species_mm
-        posterior_emissions_upper = self.flux_post_error[1] * grid_area['area'].values * seconds_year * species_mm
+        # Build linear mapping from state vector to country emissions so full
+        # covariance (including off-diagonal terms) can be propagated.
+        bf_grid = self.fp_sens_dict_out[".basis_function_grid"].values
+        xhat_flat = np.asarray(self.xhat).reshape(-1)
+        shat = np.asarray(self.shat, dtype=float)
+        n_state = xhat_flat.size
 
         # Calculate total emissions for each country by summing fluxes in grid cells that belong to that country
         country_prior_emissions = []
@@ -464,21 +471,36 @@ class PostProcessingDataOutputs:
         country_posterior_emissions_lower = []
         country_posterior_emissions_upper = []
         country_alpha3 = []
+        A = np.zeros((len(country_info), n_state), dtype=float)
 
-        for code in country_info:
+        prior_cell_emissions = prior_emissions.values
+        bc_indicator = np.asarray(self.bc_indicator).astype(int)
+
+        for country_idx, code in enumerate(country_info):
             mask = (country_codes == code) * 1.0
             country_prior_emi = (prior_emissions.values * mask).sum()
 
-            # mask_y, mask_x = np.where(country_codes.values == code)
-            # country_prior_emi = np.sum(prior_emissions.values[mask_y, mask_x])
-            country_posterior_emi = (posterior_emissions.values * mask).sum()
+            # Build weights for non-BC state elements (BC elements remain zero).
+            xa_count = 0
+            for state_idx in range(n_state):
+                if bc_indicator[state_idx] == 0:
+                    region_mask = (bf_grid == xa_count)
+                    A[country_idx, state_idx] = (prior_cell_emissions * mask * region_mask).sum()
+                    xa_count += 1
 
-            country_posterior_emissions_lower.append((posterior_emissions_lower * mask).sum())
-            country_posterior_emissions_upper.append((posterior_emissions_upper * mask).sum())
+            country_posterior_emi = float(A[country_idx, :] @ xhat_flat)
 
             country_prior_emissions.append(country_prior_emi)
             country_posterior_emissions.append(country_posterior_emi)
             country_alpha3.append(code)
+
+        # Propagate full posterior covariance: Cov_country = A * Shat * A^T
+        country_cov = A @ shat @ A.T
+        country_sigma = np.sqrt(np.clip(np.diag(country_cov), a_min=0.0, a_max=None))
+
+        for i in range(len(country_posterior_emissions)):
+            country_posterior_emissions_lower.append(country_posterior_emissions[i] - country_sigma[i])
+            country_posterior_emissions_upper.append(country_posterior_emissions[i] + country_sigma[i])
 
         ds_country_emissions = xr.Dataset({
             "prior_emissions": (["country"], country_prior_emissions),
