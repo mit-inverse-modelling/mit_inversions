@@ -2,23 +2,12 @@ import numpy as np
 import geopandas as gpd
 from shapely.geometry import Point
 import xarray as xr
+import json
+from pathlib import Path
 from ..config import data_path, get_data_path
 
 
-# Example named regions for administrative level-1 masks.
-DEFAULT_ADMIN1_REGION_DEFINITIONS = {
-    "eastern china": [
-        "Anhui",
-        "Beijing",
-        "Hebei",
-        "Jiangsu",
-        "Liaoning",
-        "Shandong",
-        "Shanghai",
-        "Tianjin",
-        "Zhejiang",
-    ],
-}
+_REGION_DEFINITIONS_PATH = Path(__file__).with_name("region_definitions.json")
 
 
 def _mask_path(base_data_dir=None):
@@ -33,6 +22,30 @@ def _admin1_mask_path(base_data_dir=None):
     if base_data_dir:
         return get_data_path(base_data_dir) / "masks/admin1/world_admin1.gpkg"
     return get_data_path(data_path / "masks/admin1/world_admin1.gpkg")
+
+
+def _load_region_definitions():
+    """Load named ADMIN-1 region definitions from readers/region_definitions.json."""
+    if not _REGION_DEFINITIONS_PATH.exists():
+        raise FileNotFoundError(
+            f"Region definitions file not found: {_REGION_DEFINITIONS_PATH}"
+        )
+
+    with _REGION_DEFINITIONS_PATH.open("r", encoding="utf-8") as f:
+        definitions = json.load(f)
+
+    if not isinstance(definitions, dict):
+        raise ValueError("region_definitions.json must contain a JSON object (dictionary).")
+
+    for key, value in definitions.items():
+        if not isinstance(key, str):
+            raise ValueError("All region definition keys must be strings.")
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise ValueError(
+                f"Region '{key}' must map to a list of ADMIN-1 name strings."
+            )
+
+    return definitions
 
 
 def get_countries_for_grid(lons_1d, lats_1d, base_data_dir=None):
@@ -110,7 +123,7 @@ def get_admin1_for_grid(lons_1d, lats_1d, base_data_dir=None, country_iso_a3=Non
     )
 
 
-def get_named_region_mask(
+def get_regions_for_grid(
     region_name,
     lons_1d,
     lats_1d,
@@ -119,7 +132,11 @@ def get_named_region_mask(
     country_iso_a3=None,
 ):
     """
-    Build a binary mask for a named region defined by a list of ADMIN-1 names.
+    Get region names for each grid cell.
+
+    Returns an xarray DataArray of shape (n_lat, n_lon) with string values
+    like the region_name for cells within the region, or 'NONE' for cells outside.
+    Analogous to get_countries_for_grid.
 
     Parameters
     ----------
@@ -127,10 +144,10 @@ def get_named_region_mask(
         Name of region definition key, e.g., "eastern china".
     region_definitions : dict[str, list[str]]
         Mapping like {"eastern china": ["Anhui", "Beijing", ...]}.
-        If omitted, DEFAULT_ADMIN1_REGION_DEFINITIONS is used.
+        If omitted, definitions are loaded from readers/region_definitions.json.
     """
     if region_definitions is None:
-        region_definitions = DEFAULT_ADMIN1_REGION_DEFINITIONS
+        region_definitions = _load_region_definitions()
 
     lookup = {k.lower(): v for k, v in region_definitions.items()}
     key = str(region_name).lower().strip()
@@ -147,11 +164,14 @@ def get_named_region_mask(
         country_iso_a3=country_iso_a3,
     )
     region_admin1_names = np.asarray(lookup[key], dtype=object)
-    mask = np.isin(admin1_grid.values, region_admin1_names).astype(np.int8)
+    in_region = np.isin(admin1_grid.values, region_admin1_names)
+    
+    # Return region_name for cells in region, 'NONE' for cells outside
+    result = np.where(in_region, region_name, 'NONE')
 
     return xr.DataArray(
-        mask,
+        result,
         coords=admin1_grid.coords,
         dims=admin1_grid.dims,
-        name=f"mask_{key.replace(' ', '_')}",
+        name=f"region_{key.replace(' ', '_')}",
     )

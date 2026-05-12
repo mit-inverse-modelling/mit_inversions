@@ -9,7 +9,7 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
 from mit_inversions.data.utils import grid_cell_area_m2, seconds_per_year
-from mit_inversions.readers.masks import get_countries_for_grid, get_country_info
+from mit_inversions.readers.masks import get_countries_for_grid, get_country_info, get_regions_for_grid
 
 
 class PostProcessing:
@@ -341,7 +341,7 @@ class PostProcessingDataOutputs:
         self.mf_sim = self.H.data @ self.xa
         self.mf_sim_opt = self.H.data @ self.xhat.flatten()
         
-        self.mf_sim_opt_err = (self.H.data @ self.shat + self.mf_model_error**2).sqrt()
+        self.mf_sim_opt_err = (np.diag(self.H.data @ self.shat @ np.transpose(self.H.data)) + self.mf_model_error**2)**0.5
         self.mf_opt_percentile = np.array([self.mf_sim_opt-self.mf_sim_opt_err, self.mf_sim_opt+self.mf_sim_opt_err]).T
 
         self.sites = self.inversion_results['sites']
@@ -425,7 +425,7 @@ class PostProcessingDataOutputs:
         # self.longitude_grid = self.fp_sens_dict_out['.basis_function_grid']['longitude'].values
         # self.latitude_grid = self.fp_sens_dict_out['.basis_function_grid']['latitude'].values
 
-    def calculate_country_emissions(self)->xr.Dataset:
+    def calculate_country_emissions(self, subregion=None)->xr.Dataset:
         """
         Method to calculate emission totals for countries in model domain
         """
@@ -437,7 +437,10 @@ class PostProcessingDataOutputs:
         grid_lon = self.fp_sens_dict_out[".basis_function_grid"]["longitude"].values
 
         # Get country codes for each grid cell
-        country_codes = get_countries_for_grid(grid_lon, grid_lat)
+        if subregion == None:
+            country_codes = get_countries_for_grid(grid_lon, grid_lat)
+        else:
+            country_codes = get_regions_for_grid(subregion, grid_lon, grid_lat)
 
         # Get country info table
         country_info = np.sort(list(set(country_codes.copy().data.ravel())))
@@ -453,7 +456,6 @@ class PostProcessingDataOutputs:
         print("Calculating country emissions ...")
 
         # Convert fluxes to emissions in g/year for each grid cell
-        posterior_emissions = self.flux_post['flux'] * grid_area['area'] * seconds_year * species_mm
         prior_emissions = self.flux_prior['flux'] * grid_area['area'] * seconds_year * species_mm
         
         # Build linear mapping from state vector to country emissions so full
