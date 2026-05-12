@@ -202,14 +202,17 @@ def forward_simulation(data_dict: dict)->dict:
         average = average.lower()
         data_ave_dict = {}
         for site in data_aligned_dict.keys():
-            data_temp = data_aligned_dict[site].resample({"time": average}).pad().dropna("time")
+            data_temp = data_aligned_dict[site].resample({"time": average}).pad()
 
             if len(data_temp["time"]) > len(data_aligned_dict[site]["time"]):
                 raise ValueError (f"WARNING! {average} averaging produces more time points that in initial observations. Use a greater averging period!")
 
-            data_ave_dict[site] = data_temp
-            
+            data_ave_dict[site] = data_temp.dropna("time", subset=["mf", "mf_variability", "mf_repeatability"])
+        
         return data_ave_dict, flux_grid
 
     else:
+        for site in data_aligned_dict.keys():
+            data_aligned_dict[site] = data_aligned_dict[site].dropna("time", subset=["mf", "mf_variability", "mf_repeatability"])
+
         return data_aligned_dict, flux_grid
