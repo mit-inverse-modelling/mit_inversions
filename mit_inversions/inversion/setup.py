@@ -52,7 +52,7 @@ class InversionSetupRun:
         from the scaling standard deviations.
         """
         xa_emis_base = np.asarray(
-            self.flux_prior_sector["flux_bf"].sum(dim="flux_sector").values,
+            np.ones_like(self.flux_prior_sector["flux_bf"].sum(dim="flux_sector").values),
             dtype=np.float64,
         )
         xa_bc_base = np.ones(int(n_bc), dtype=np.float64)
@@ -169,8 +169,9 @@ class InversionSetupRun:
         bc_data_indicator = []
 
         for i, site in enumerate(self.sites):
-            fpXflux_bf = self.fp_sens_dict_out[site]['H']
-            H_fp = (fpXflux_bf / self.flux_prior_sector['flux_bf'].sum(dim="flux_sector")).fillna(0)
+            # fpXflux_bf = self.fp_sens_dict_out[site]['H']
+            # H_fp = (fpXflux_bf / self.flux_prior_sector['flux_bf'].sum(dim="flux_sector")).fillna(0)
+            H_fp = self.fp_sens_dict_out[site]['H']
             H_bc = self.fp_sens_dict_out[site]['Hbc']
             H_all = xr.concat([H_fp, H_bc.rename({'period_edge': 'region'})], dim='region').rename({'region': 'region_all'})
 
@@ -207,13 +208,6 @@ class InversionSetupRun:
 
             # xa is the prior mean state and xa_error is the prior covariance (P).
             xa, xa_error = self._build_prior_state_and_covariance(nHB)  
-
-            # print("xa", np.max(xa))
-            # print("xa_error", np.max(xa_error))
-            # print("H_concat", np.max(H_concat.data))
-            # print("Y_concat", np.max(Y_concat))
-            # print("YError_concat", np.nanmax(YError_concat))
-
 
             if self.inverse_method == "analytical":
                 # Perform analytical inversion to get posterior flux estimates and uncertainties
