@@ -26,30 +26,25 @@ def _load_proxy(path, var_name, lats, lons):
             var_name = candidates[0]
         
         target_lons = np.asarray(lons, dtype=np.float64).copy()
-        source_lons = np.asarray(ds[lon_dim].values, dtype=np.float64)
+        # Copy to ensure longitude edits are always applied to a writable array.
+        source_lons = np.asarray(ds[lon_dim].values, dtype=np.float64).copy()
+        proxy_da = ds[var_name]
 
         if np.nanmin(source_lons) < 0.0 and np.any(target_lons > 180.0):
             mtohe = source_lons < 0
             source_lons[mtohe] += 360.0
             ordinds = np.argsort(source_lons)
             source_lons = source_lons[ordinds]
-            ds[var_name].values = ds[var_name].values[:, ordinds]
-            # ds[lon_dim].values = source_lons
-            ds = ds.assign_coords({lon_dim: source_lons})
+            proxy_da = ds[var_name].isel({lon_dim: ordinds}).assign_coords({lon_dim: source_lons})
 
         elif np.nanmax(source_lons) >= 180.0 and np.any(target_lons < 0.0):
             mtohe = source_lons >= 180.0
             source_lons[mtohe] -= 360.0
             ordinds = np.argsort(source_lons)
             source_lons = source_lons[ordinds]
-            ds[var_name].values = ds[var_name].values[:, ordinds]
-            # ds[lon_dim].values = source_lons
-            ds = ds.assign_coords({lon_dim: source_lons})
+            proxy_da = ds[var_name].isel({lon_dim: ordinds}).assign_coords({lon_dim: source_lons})
 
-        else:
-            ds[var_name].values = ds[var_name].values
-
-        da = ds[var_name].interp(
+        da = proxy_da.interp(
             {lat_dim: lats, lon_dim: lons},
             method="nearest",
         )
