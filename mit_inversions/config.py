@@ -5,7 +5,6 @@ Handles path configuration with user-editable defaults.
 import os
 from pathlib import Path
 
-
 def get_data_path(path=None):
     """Get the data path with configurable override.
     
@@ -33,3 +32,8 @@ def get_data_path(path=None):
 # Default data path - users can override by setting MITINV_DATA_PATH
 data_path = get_data_path()
 
+def get_repo_parent_path():
+    """
+    Get the parent path of the repository.
+    """
+    return Path(__file__).parent.parent
