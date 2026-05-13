@@ -4,9 +4,16 @@
 # Copyright (c) 2026. All rights reserved.
 # License: MIT License
 
+# Description: 
+#   This module implements the DataFiltering class, which provides various methods for filtering 
+#   atmospheric observations data based on time of day, daily medians, and local footprint influence 
+#   ratios. The class can be initialized with a dataset and a list of filters to apply, and it includes 
+#   a method to run the specified filters on the dataset.
+
 import json
 import numpy as np
 import pandas as pd
+from mit_inversions.config import get_repo_parent_path
 
 class DataFiltering():
     """
@@ -151,8 +158,9 @@ class DataFiltering():
         """
         Method that filters data based on the ratio of local to domain-wide footprint influence.
         """
+        repo_path = get_repo_parent_path()
         # Load site data json file 
-        with open("mit_inversions/data/site_data.json", "r") as f:
+        with open(repo_path / "mit_inversions"/ "data" / "site_data.json", "r") as f:
             site_data = json.load(f)
         
         site_lon = site_data[site][list(site_data[site].keys())[0]].get("longitude")
