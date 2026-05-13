@@ -42,8 +42,6 @@ class BasisFunctions:
     def __init__(self, 
                  fp_flux_grid: xr.DataArray,
                  bf_algorithm: str,
-                 data_mask: np.ndarray=None,
-                 country_masking: bool=True,
                  fp_flux_grid_error: xr.DataArray=None,
                  target_regions: int=50,
                  max_iter: int=1000,
@@ -61,14 +59,6 @@ class BasisFunctions:
         - bf_algorithm (str):
             Basis function algorithm. 
             Select from 'regional_sum' or 'iwasp'.
-        - data_mask (np.ndarray):
-            Create basis functions from a data subset
-            based on the input mask.
-            Mask should be a list of True False elements.
-            Defaults to None.
-        - country_masking (bool):
-            Option to apply a country mask to ensure 
-            basis functions do not overlap country borders.
         - fp_flux_grid_error (xr.DataArray):
             Optional flux uncertainty grid. Needed for iwasp 
             algorithm (defaults to 1/sqrt(F) if not specified).
@@ -110,7 +100,7 @@ class BasisFunctions:
         # Footprint-flux uncertainty grid
         self.fp_flux_grid_error = fp_flux_grid_error
         
-        # IESD algorithm variables 
+        # IWASP algorithm variables 
         self.max_iter = max_iter
         self.var_threshold = var_threshold
         self.alpha = alpha
