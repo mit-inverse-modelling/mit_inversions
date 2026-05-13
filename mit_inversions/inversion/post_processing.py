@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
+from mit_inversions.config import get_repo_parent_path
 from mit_inversions.data.utils import grid_cell_area_m2, seconds_per_year
 from mit_inversions.readers.masks import get_countries_for_grid, get_country_info, get_regions_for_grid
 
@@ -280,6 +281,12 @@ class PostProcessingDataOutputs:
             A dictionary containing the inversion results.
         fp_sens_dict_out (dict):
             A dictionary containing the forward model sensitivity information.
+        flux_grid_prior (xr.Dataset):
+            A priori flux grid dataset.
+        atmospheric_transport_model (str):
+            The atmospheric transport model used in the inversion.
+        inversion_method (str):
+            The inversion method used (e.g., "analytical", "mcmc").
         output_dir (str):
             The directory where output files will be saved.
         """
@@ -359,7 +366,8 @@ class PostProcessingDataOutputs:
         # Read site information json file 
         import json 
         # import mit_inversions.mit_inversions.data.site_data.json as site_data
-        with open("mit_inversions/data/site_data.json") as f:
+        repo_path = get_repo_parent_path()
+        with open(repo_path / "mit_inversions" / "data" / "site_data.json") as f:
             site_info_f = json.load(f)
         
         # Get site names and siteindicator values
