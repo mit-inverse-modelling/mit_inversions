@@ -47,6 +47,15 @@ def artemis(data_dict_inputs: dict):
    and temporal variability of surface fluxes, and incorporates regularization techniques to 
    stabilize the inversion process and prevent overfitting to noisy observations.
 
+   4. Boundary Conditions: Boundary conditions for the inversion model domain are calculated 
+   based the LPDM particle end locations and data from the AGAGE 12-box model. 
+
+   5. Inversion Setup and Run: Data are prepared for the inversion and 
+   the inversion using a specified inverse method (e.g., analytical, MCMC) is ran.
+
+   6. Post-Processing: Post-processing of the inversion results into the FLUXIE format, 
+   including calculating emissions by country and plotting gridded data.
+
    Parameters:
    - data_dict_inputs (dict): A dictionary containing all necessary input data for the ARTEMIS.
    """
@@ -72,19 +81,40 @@ def artemis(data_dict_inputs: dict):
                                            bc_dict=model_data_dict_bc,
                                            flux_grid=flux_grid_prior,
                                            inverse_method=data_dict_inputs['inversion']['inverse_method'],
-                                           inverse_kwargs=data_dict_inputs.get('inversion', {}),
+                                           inverse_kwargs=data_dict_inputs['inversion']['inverse_kwargs'],
                                            ).run()
    
-   output_dir = "/home/esaboya/cfc11/results"
    post_processing_obj = PostProcessing(species=data_dict_inputs['species'],
                                         start_date=data_dict_inputs['start_date'],
-                                        inversion_results=inversion_data_out, 
-                                        fp_sens_dict_out=fp_sens_dict_out, 
-                                        output_dir=output_dir)
+                                        end_date=data_dict_inputs['end_date'],
+                                        inversion_results=inversion_data_out,
+                                        fp_sens_dict_out=fp_sens_dict_out,
+                                        atmospheric_transport_model=data_dict_inputs['footprints']['lpdm'],
+                                        inversion_method=data_dict_inputs['inversion']['inverse_method'],
+                                        output_dir=data_dict_inputs['output_dir'],
+                                        )
+   # Process inversion results into FLUXIE format and calculate emissions by country
+   (ds_molefraction, ds_flux) = post_processing_obj.fluxie()
    
-   print("Calculating emissions by country...")
-   emissions = post_processing_obj.calculate_country_emissions()
    print("Saving emissions to NetCDF...")
-   emissions.to_netcdf(f'{output_dir}/country_emissions_{data_dict_inputs["species"]}_{data_dict_inputs["start_date"]}.nc')
+   # Extract parameters for output file naming
+   save_date = data_dict_inputs['start_date'][0:4]
+   species = data_dict_inputs['species']
+   inverse_method = data_dict_inputs['inversion']['inverse_method']
+   basis_method_in = data_dict_inputs['basis_functions']['bf_algorithm']
+   if basis_method_in == "regional_sum":
+      basis_method = "regionalsum"
+   else:
+      basis_method = basis_method_in
 
-   post_processing_obj.plot_gridded_data()
+   if data_dict_inputs["flux"]["mode"] == "customized":
+      flux_method = "customized"
+   elif data_dict_inputs["flux"]["mode"] == "auto_generated":
+      flux_method = data_dict_inputs["flux"]["method"]
+
+   flux_fname_out = f"ARTEMIS_{species}_fluxes_{inverse_method}_{basis_method}_{flux_method}_{save_date}.nc"
+   molefraction_fname_out = f"ARTEMIS_{species}_molefraction_{inverse_method}_{basis_method}_{flux_method}_{save_date}.nc"
+
+   ds_flux.to_netcdf(data_dict_inputs['output_dir'] / flux_fname_out)
+   ds_molefraction.to_netcdf(data_dict_inputs['output_dir'] / molefraction_fname_out)
+
