@@ -1,11 +1,11 @@
 # footprint_flux_reader.py
 # Created: 16 March 2026
-# Author: Eric Saboya
+# Authors: Eric Saboya, Minde An, Luke Western
 # Copyright (c) 2026. All rights reserved.
 # License: MIT License
 # 
 # Description: 
-#   This module retrieve and processes footprint and flux data for specified sites, date ranges, and
+#   This module retrieves and processes footprint and flux data for specified sites, date ranges, and
 #   flux/lpdm models. It includes the FootprintFlux class, which has methods for validating inputs,
 #   loading footprint and flux data, regridding flux data to the footprint grid, and aligning the
 #   data for use in inverse modeling and forward simulations. 
