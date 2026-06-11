@@ -27,6 +27,7 @@ from mit_inversions.readers.masks import get_countries_for_grid
 
 def inversion_grid_sensitivity(data_dict_inputs: dict, 
                                model_data_dict: dict,
+                               basis_function_ds: xr.Dataset = None
                                )->dict:
     """
     Calculate the H values on the inversion grid for each measurement site based on 
@@ -42,64 +43,71 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
     - model_data_dict (dict): 
         The updated model data dictionary with H matrix information included and the basis function grid.
     """
-
-    # Calculate mean footprint-flux grid for basis function calculation
-    for i, site in enumerate(model_data_dict.keys()):
-        if i == 0:
-            fp_flux_grid_mean = model_data_dict[site]['fp_flux_grid'].mean(dim=('flux_sector', 'time'))
-        else:
-            fp_flux_grid_mean += model_data_dict[site]['fp_flux_grid'].mean(dim=('flux_sector', 'time'))
-    
-    # Mean footprint-flux grid across all sites for basis function calculation
-    fp_flux_grid_mean /= len(model_data_dict.keys())
-
     # Check basis function input arguments and set defaults if not specified
     basis_function_args = data_dict_inputs['basis_functions']
     
-    if "bf_algorithm" in basis_function_args.keys():
-        bf_algorithm = basis_function_args['bf_algorithm']
-
-        if bf_algorithm == "iwasp":
-            if "fp_flux_grid_error" not in basis_function_args.keys() or basis_function_args['fp_flux_grid_error'] is None:
-                fp_flux_grid_error = np.nan_to_num(1/np.sqrt(fp_flux_grid_mean), nan=0.0, posinf=0.0, neginf=0.0)
-                print("No footprint-flux grid error provided for IWASP algorithm. Defaulting to 1/sqrt(fp_flux_grid_mean).")
-            else:
-                fp_flux_grid_error = basis_function_args['fp_flux_grid_error']
-            print("Using IWASP basis function algorithm.")
-
-        elif bf_algorithm == "regional_sum":
-            print("Using Regional Sum basis function algorithm.")
-            fp_flux_grid_error = None
-
-    elif "bf_algorithm" is None or "bf_algorithm" not in basis_function_args.keys():
-        print("No basis function algorithm specified. Defaulting to 'regional_sum'.")
-        bf_algorithm = "regional_sum"
-        fp_flux_grid_error = None
-
     if "country_masking" in basis_function_args.keys():
         country_masking = basis_function_args['country_masking']
     else:        
         country_masking = True
 
-    if "target_regions" in basis_function_args.keys():
-        target_regions = basis_function_args['target_regions']
+    # Calculate mean footprint-flux grid for basis function calculation
+    for i, site in enumerate(model_data_dict.keys()):
+        if i == 0:
+            # fp_flux_grid_mean = model_data_dict[site]['fp_flux_grid'].mean(dim=('flux_sector', 'time'))
+            fp_flux_grid_mean = model_data_dict[site]['fp_flux_grid'].sum(dim=('flux_sector')).mean(dim='time')
+        else:
+            # fp_flux_grid_mean += model_data_dict[site]['fp_flux_grid'].mean(dim=('flux_sector', 'time'))
+            fp_flux_grid_mean += model_data_dict[site]['fp_flux_grid'].sum(dim=('flux_sector')).mean(dim='time')
+
+    # Mean footprint-flux grid across all sites for basis function calculation
+    fp_flux_grid_mean /= len(model_data_dict.keys())
+
+
+    if basis_function_ds is None:
+
+        if "bf_algorithm" in basis_function_args.keys():
+            bf_algorithm = basis_function_args['bf_algorithm']
+
+            if bf_algorithm == "iwasp":
+                if "fp_flux_grid_error" not in basis_function_args.keys() or basis_function_args['fp_flux_grid_error'] is None:
+                    fp_flux_grid_error = np.nan_to_num(1/np.sqrt(fp_flux_grid_mean), nan=0.0, posinf=0.0, neginf=0.0)
+                    print("No footprint-flux grid error provided for IWASP algorithm. Defaulting to 1/sqrt(fp_flux_grid_mean).")
+                else:
+                    fp_flux_grid_error = basis_function_args['fp_flux_grid_error']
+                print("Using IWASP basis function algorithm.")
+
+            elif bf_algorithm == "regional_sum":
+                print("Using Regional Sum basis function algorithm.")
+                fp_flux_grid_error = None
+
+        elif "bf_algorithm" is None or "bf_algorithm" not in basis_function_args.keys():
+            print("No basis function algorithm specified. Defaulting to 'regional_sum'.")
+            bf_algorithm = "regional_sum"
+            fp_flux_grid_error = None
+
+        if "target_regions" in basis_function_args.keys():
+            target_regions = basis_function_args['target_regions']
+        else:
+            target_regions = 50
+
+        # Calculate basis function grid for inversion period 
+        basis_function_grid = BasisFunctions(fp_flux_grid=fp_flux_grid_mean,
+                                                bf_algorithm=bf_algorithm,
+                                                fp_flux_grid_error=fp_flux_grid_error,
+                                                target_regions=target_regions,
+                                            ).run()
+
+        # Create xarray dataset for basis function grid
+        ds_basis_function = xr.Dataset(
+            {"basis_function_grid": (["latitude", "longitude"], basis_function_grid)},
+            coords={"latitude": model_data_dict[site]['fp_flux_grid'].latitude,
+                    "longitude": model_data_dict[site]['fp_flux_grid'].longitude,
+                    },
+        )
+
     else:
-        target_regions = 50
-    
-    # Calculate basis function grid for inversion period 
-    basis_function_grid = BasisFunctions(fp_flux_grid=fp_flux_grid_mean,
-                                         bf_algorithm=bf_algorithm,
-                                         fp_flux_grid_error=fp_flux_grid_error,
-                                         target_regions=target_regions,
-                                        ).run()
-    
-    # Create xarray dataset for basis function grid
-    ds_basis_function = xr.Dataset(
-        {"basis_function_grid": (["latitude", "longitude"], basis_function_grid)},
-        coords={"latitude": model_data_dict[site]['fp_flux_grid'].latitude,
-                "longitude": model_data_dict[site]['fp_flux_grid'].longitude,
-                },
-    )
+        ds_basis_function = basis_function_ds
 
     # Apply country masking if specified
     if country_masking:
@@ -129,6 +137,8 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
         new_region_grid = df_bf_cmask['new_region_id'].values.reshape(original_shape)
 
         ds_basis_function['basis_function_grid'].data = new_region_grid
+
+
 
 
     # Stack basis function grid
