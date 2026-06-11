@@ -153,13 +153,13 @@ class BasisFunctions:
                     )
 
             bf_setup = IWASP(fp_flux_grid=grid_arr,
-                            fp_flux_grid_error=fp_flux_grid_error,
-                            target_regions=self.target_regions,
-                            max_iter=self.max_iter,
-                            var_threshold=self.var_threshold,
-                            alpha=self.alpha,
-                            smooth_sigma=self.smooth_sigma,
-                            )
+                             fp_flux_grid_error=fp_flux_grid_error,
+                             target_regions=self.target_regions,
+                             max_iter=self.max_iter,
+                             var_threshold=self.var_threshold,
+                             alpha=self.alpha,
+                             smooth_sigma=self.smooth_sigma,
+                             )
             out = bf_setup.run()
 
             unique_arr = list(set(out[0].ravel()))
