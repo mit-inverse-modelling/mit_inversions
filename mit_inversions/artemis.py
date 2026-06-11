@@ -118,3 +118,123 @@ def artemis(data_dict_inputs: dict):
    ds_flux.to_netcdf(data_dict_inputs['output_dir'] / flux_fname_out)
    ds_molefraction.to_netcdf(data_dict_inputs['output_dir'] / molefraction_fname_out)
 
+
+
+def artemis_multitracer(data_dict_inputs: dict):
+   """
+   ------------------------ ARTEMIS Multitracer ------------------------
+   Wrapper function to run the ARTEMIS framework for multiple tracers simultaneously. 
+   This function allows for the joint inversion of multiple greenhouse gases, which can 
+   improve the accuracy of flux estimates by leveraging the complementary information 
+   provided by different tracers.
+
+   The steps performed in this function are similar to those in the single-tracer version, 
+   but they are applied to each tracer in the input data dictionary. The function iterates 
+   through each tracer, performing forward simulation, model error calculation, basis function 
+   application, boundary condition calculation, inversion setup and run, and post-processing 
+   for each tracer. The results for all tracers are saved in NetCDF format with appropriate 
+   naming conventions.
+
+   Assumptions:
+   We use atmospheric trace gas measurements from gas 2 (emitted from only one source) to constrain emissions
+   of gas 1 (emitted from two sources).
+
+      y1 = H1*X1 + H2*X2 + Hbc1*Xbc1 + e1
+      y2 = G1*A*X1 + Hbc2*Xbc2 + e2
+
+   where:
+      - y1 and y2 are the observations for gas 1 and gas 2, respectively.
+      - H1 and H2 are the sensitivity matrices for gas 1 to sources 1 and 2, respectively.
+      - G1 is the sensitivity matrix for gas 2 to source 1, 
+      - A is the scaling factor relating the emissions of gas 1 and gas 2 from source 1.
+   """
+   
+   from mit_inversions.readers.observations import Observations
+   from mit_inversions.readers.footprint_flux_reader import FootprintFlux
+   from mit_inversions.simulations import data_merge
+   from mit_inversions.inversion.multitracer import multitracer_inversion
+
+   # Retrieve atmospheric trace gas observations for both species
+   y1 = Observations(species=data_dict_inputs['species'],
+                     sites=data_dict_inputs['sites'],
+                     start_date=data_dict_inputs['start_date'],
+                     end_date=data_dict_inputs['end_date'],
+                     base_data_path=data_dict_inputs['base_data_dir'],
+                     ).get_observations()
+
+   y2 = Observations(species=data_dict_inputs['species2'],
+                     sites=data_dict_inputs['sites'],
+                     start_date=data_dict_inputs['start_date'],
+                     end_date=data_dict_inputs['end_date'],
+                     base_data_path=data_dict_inputs['base_data_dir'],
+                     ).get_observations()
+
+   # Create correpsonding simulations 
+   (fp_flux_grid_1,
+    mf_sim_1,
+    flux_grid_1,
+    fps_1,
+    ) = FootprintFlux(start_date=data_dict_inputs['start_date'],
+                      end_date=data_dict_inputs['end_date'],
+                      sites=data_dict_inputs['sites'],
+                      site_inlets=data_dict_inputs['footprints']['site_inlets'],
+                      lpdm=data_dict_inputs['footprints']['lpdm'],
+                      met_model=data_dict_inputs['footprints']['met_model'],
+                      species=data_dict_inputs['species'],
+                      flux=data_dict_inputs['flux_dict_1'],
+                      base_data_dir=data_dict_inputs['base_data_dir'],
+                      ).align_flux_footprint()
+
+   (fp_flux_grid_2,
+    mf_sim_2,
+    flux_grid_2,
+    fps_2,
+    ) = FootprintFlux(start_date=data_dict_inputs['start_date'],
+                      end_date=data_dict_inputs['end_date'],
+                      sites=data_dict_inputs['sites'],
+                      site_inlets=data_dict_inputs['footprints']['site_inlets'],
+                      lpdm=data_dict_inputs['footprints']['lpdm'],
+                      met_model=data_dict_inputs['footprints']['met_model'],
+                      species=data_dict_inputs['species2'],
+                      flux=data_dict_inputs['flux_dict_2'],
+                      base_data_dir=data_dict_inputs['base_data_dir'],
+                      ).align_flux_footprint()
+
+   # Ensure each species data are internally aligned
+   data_aligned_dict_gas1 = data_merge(y1, fp_flux_grid_1, mf_sim_1, fps_1)
+   data_aligned_dict_gas2 = data_merge(y2, fp_flux_grid_2, mf_sim_2, fps_2)
+
+   # Calculate model errors for each species
+   model_data_gas1 = ModelError(data_aligned_dict_gas1, 
+                                model_error_method=data_dict_inputs['model_error_method'],
+                                ).run()
+
+   model_data_gas2 = ModelError(data_aligned_dict_gas2, 
+                                model_error_method=data_dict_inputs['model_error_method'],
+                                ).run()
+   
+   # Calculate basis functions
+   # Gas 1 basis functions are used for gas 2
+   fp_sens_out_gas1 = inversion_grid_sensitivity(data_dict_inputs, model_data_gas1)
+   basis_function_grid = xr.Dataset({'basis_function_grid': model_data_gas1[".basis_function_grid"]})
+   fp_sens_out_gas2 = inversion_grid_sensitivity(data_dict_inputs, model_data_gas2, basis_function_ds=basis_function_grid)   
+
+   # Calculate boundary conditions for each species
+   gas1_data_dict_bc = BoundaryConditions(species=data_dict_inputs["species"],
+                                          fp_obj=fp_sens_out_gas1
+                                          ).get_sensitivity_matrix()
+
+   gas2_data_dict_bc = BoundaryConditions(species=data_dict_inputs["species2"],
+                                          fp_obj=fp_sens_out_gas2
+                                          ).get_sensitivity_matrix()
+   
+   # Run the multitracer inversion
+   inversion_results = multitracer_inversion(data_dict_inputs=data_dict_inputs,
+                                             fp_sens_out_gas1=fp_sens_out_gas1,
+                                             fp_sens_out_gas2=fp_sens_out_gas2,
+                                             gas1_data_dict_bc=gas1_data_dict_bc,
+                                             gas2_data_dict_bc=gas2_data_dict_bc,
+                                             flux_grid_1=flux_grid_1,
+                                             flux_grid_2=flux_grid_2)
+
+   return inversion_results
