@@ -38,6 +38,7 @@ class ModelError():
 
         expected_methods = [
             "pollution_event_error",
+            "simple",
         ]
 
         if model_error_method in expected_methods:
@@ -102,6 +103,21 @@ class ModelError():
 
         return model_error
     
+    def simple_model_error(self, obs, sim):
+        """
+        Calculate a simple model error as the standard deviation of the observation-simulation residuals.
+
+        Parameters:
+        - obs (xarray.DataArray): 
+            Observed concentrations.
+        - sim (xarray.DataArray): 
+            Simulated concentrations from the model.
+        """
+        residuals = obs - sim.mean(dim="flux_sector") - np.percentile(obs, 5)
+        model_error = np.abs(np.nanmean(residuals.values))
+        
+        return np.array([model_error] * len(obs))
+
     def run(self):
         """
         Wrapper function to calculate the model error using the selected method.
@@ -115,7 +131,8 @@ class ModelError():
             # Calculate model error
             if self.model_method == "pollution_event_error":
                 model_error = self.pollution_event_minmodel_error(obs, sim)
-            
+            elif self.model_method == "simple":
+                model_error = self.simple_model_error(obs, sim)
 
             self.model_data_dict[site]['mf_model_error'] = xr.DataArray(model_error, coords=obs.coords)
         
