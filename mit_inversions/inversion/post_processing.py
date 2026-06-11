@@ -658,7 +658,7 @@ class PostProcessingDataOutputs:
             ds_fluxes["latitude"].attrs["standard_name"] = "latitude"
             ds_fluxes['latitude'].attrs["axis"] = "Y"
 
-            ds_fluxes["time"].attrs["units"] = "days since 1970-01-01T00:00:00"
+            # ds_fluxes["time"].attrs["units"] = "days since 1970-01-01T00:00:00"
             ds_fluxes["time"].attrs["long_name"] = "mid of flux interval in UTC"
             ds_fluxes["time"].attrs["standard_name"] = "time"
             ds_fluxes["time"].attrs["axis"] = "T"
@@ -666,41 +666,41 @@ class PostProcessingDataOutputs:
             ds_fluxes["percentile"].attrs["units"] = "1"
             ds_fluxes["percentile"].attrs["long_name"] = "reported percentiles for non-Gaussian probability distribution functions"
 
-            ds_fluxes["time_bnds"].attrs["units"] = "days since 1970-01-01T00:00:00"
+            # ds_fluxes["time_bnds"].attrs["units"] = "days since 1970-01-01T00:00:00"
             ds_fluxes["time_bnds"].attrs["long_name"] = "start and end points of each time step"
 
             # Fluxes
             ds_fluxes["flux_total_prior"].attrs["units"] = "mol m-2 s-1"
-            ds_fluxes["flux_total_prior"].attrs["_FillValue"] = "NaNf"
+            ds_fluxes["flux_total_prior"].attrs["_FillValue"] = float('nan')
             ds_fluxes["flux_total_prior"].attrs["long_name"] = f"prior total surface flux of {self.species}"
 
             ds_fluxes["flux_total_posterior"].attrs["units"] = "mol m-2 s-1"
-            ds_fluxes["flux_total_posterior"].attrs["_FillValue"] = "NaNf"
+            ds_fluxes["flux_total_posterior"].attrs["_FillValue"] = float('nan')
             ds_fluxes["flux_total_posterior"].attrs["long_name"] = f"posterior total surface flux of {self.species}"
 
-            ds_fluxes["percentile_flux_total_prior"].attrs["units"] = "mol m-2 s-1"
-            ds_fluxes["percentile_flux_total_prior"].attrs["long_name"] = f"percentiles of prior total surface flux of {self.species}."
-            ds_fluxes["percentile_flux_total_prior"].attrs["_FillValue"] = "NaNf"
+            # ds_fluxes["percentile_flux_total_prior"].attrs["units"] = "mol m-2 s-1"
+            # ds_fluxes["percentile_flux_total_prior"].attrs["long_name"] = f"percentiles of prior total surface flux of {self.species}."
+            # ds_fluxes["percentile_flux_total_prior"].attrs["_FillValue"] = "NaNf"
 
             ds_fluxes["percentile_flux_total_posterior"].attrs["units"] = "mol m-2 s-1"
             ds_fluxes["percentile_flux_total_posterior"].attrs["long_name"] = f"percentiles of posterior total surface flux of {self.species}."
-            ds_fluxes["percentile_flux_total_posterior"].attrs["_FillValue"] = "NaNf"
+            ds_fluxes["percentile_flux_total_posterior"].attrs["_FillValue"] = float('nan')
 
             # Country emisisons 
             ds_fluxes["flux_total_prior_country"].attrs["units"] = "g/year"
-            ds_fluxes["flux_total_prior_country"].attrs["_FillValue"] = "NaNf"
+            ds_fluxes["flux_total_prior_country"].attrs["_FillValue"] = float('nan')
             ds_fluxes["flux_total_prior_country"].attrs["long_name"] = f"prior total surface flux of {self.species} by country"
 
             ds_fluxes["flux_total_posterior_country"].attrs["units"] = "g/year"
-            ds_fluxes["flux_total_posterior_country"].attrs["_FillValue"] = "NaNf"
+            ds_fluxes["flux_total_posterior_country"].attrs["_FillValue"] = float('nan')
             ds_fluxes["flux_total_posterior_country"].attrs["long_name"] = f"posterior total surface flux of {self.species} by country"
 
-            ds_fluxes["percentile_flux_total_prior_country"].attrs["units"] = "g/year"
-            ds_fluxes["percentile_flux_total_prior_country"].attrs["_FillValue"] = "NaNf"
-            ds_fluxes["percentile_flux_total_prior_country"].attrs["long_name"] = f"percentiles of prior total surface flux of {self.species} by country"
+            # ds_fluxes["percentile_flux_total_prior_country"].attrs["units"] = "g/year"
+            # ds_fluxes["percentile_flux_total_prior_country"].attrs["_FillValue"] = "NaNf"
+            # ds_fluxes["percentile_flux_total_prior_country"].attrs["long_name"] = f"percentiles of prior total surface flux of {self.species} by country"
 
             ds_fluxes["percentile_flux_total_posterior_country"].attrs["units"] = "g/year"
-            ds_fluxes["percentile_flux_total_posterior_country"].attrs["_FillValue"] = "NaNf"
+            ds_fluxes["percentile_flux_total_posterior_country"].attrs["_FillValue"] = float('nan')
             ds_fluxes["percentile_flux_total_posterior_country"].attrs["long_name"] = f"percentiles of posterior total surface flux of {self.species} by country"
 
             # Aux variables 
@@ -753,9 +753,9 @@ class PostProcessingDataOutputs:
                       }
 
             ds_fluxes = xr.Dataset(data_vars=my_data_vars, coords=mydims)
-            # ds_flux = flux_attrs(ds_fluxes)
-            # ds_out = global_attrs(ds_flux)
-            return ds_fluxes
+            ds_flux = flux_attrs(ds_fluxes)
+            ds_out = global_attrs(ds_flux)
+            return ds_out
 
 
         return concentrations(), fluxes()
