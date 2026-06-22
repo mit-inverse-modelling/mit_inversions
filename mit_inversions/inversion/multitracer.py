@@ -169,16 +169,16 @@ def multitracer_inversion(data_dict_inputs: dict,
     #   B22: Uncertainty on gas 1, sector 2 emissions
     #   Bbc1: Uncertainty on gas 1, boundary conditions
     #   Bbc2: Uncertainty on gas 2, boundary conditions
-    B11 = np.diag((data_dict_inputs['xa1_sigma'] * Xa1.flatten()))
-    B22 = np.diag((data_dict_inputs['xa2_sigma'] * Xa2.flatten()))
-    Bbc1 = np.diag((data_dict_inputs['xbc1_sigma'] * XaBC1.flatten()))
-    Bbc2 = np.diag((data_dict_inputs['xbc2_sigma'] * XaBC2.flatten()))
+    B11 = np.diag((data_dict_inputs['xa1_sigma'] * Xa1.flatten()) ** 2)
+    B22 = np.diag((data_dict_inputs['xa2_sigma'] * Xa2.flatten()) ** 2)
+    Bbc1 = np.diag((data_dict_inputs['xbc1_sigma'] * XaBC1.flatten()) ** 2)
+    Bbc2 = np.diag((data_dict_inputs['xbc2_sigma'] * XaBC2.flatten()) ** 2)
 
     # Model-data uncertainty block matrix R terms (assumed to be diagonal):
     #   R1: Uncertainty on gas 1 observations
     #   R2: Uncertainty on gas 2 observations
-    R1 = np.diag(g1_ds_clean["R"].values.flatten())
-    R2 = np.diag(g2_ds_clean["R"].values.flatten()) + H1 @ np.diag((Sa * np.ones_like(Xa1.flatten()))) @ H1.T
+    R1 = np.diag(g1_ds_clean["R"].values.flatten() ** 2)
+    R2 = np.diag(g2_ds_clean["R"].values.flatten() ** 2) + H1 @ np.diag((Sa * np.ones_like(Xa1.flatten()))) @ H1.T
 
     print("t1", len(g1_ds_clean['time']))
     print("t2", len(g2_ds_clean['time']))
