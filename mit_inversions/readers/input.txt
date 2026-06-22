@@ -18,7 +18,7 @@
 
     "footprints" : {
         "site_inlets": "List of the air inlet heights modeled for each site | optional",
-        "lpdm": "Langragian Particle Disperion Model option - choose from NAME, FLEXPART.",
+        "lpdm": "Lagrangian Particle Dispersion Model option - choose from NAME, FLEXPART.",
         "met_model" : "List of corresponding meteorological field data used to drive the footprints for each site.",
     },
 
