@@ -16,7 +16,6 @@
 #   to calculate the posterior estimates and uncertainties for the fluxes and boundary
 #   conditions for both gases. The output is a dictionary containing the results.
 
-import sys
 import numpy as np
 import pandas as pd
 import xarray as xr
