@@ -417,7 +417,7 @@ class InversionSetupRun:
             obs_site_names.extend([site] * len(t))
             if i==0:
                 bc_data_indicator.extend([0] * H_fp.shape[2])
-                bc_data_indicator.extend([1] * H_bc.shape[2])
+                bc_data_indicator.extend([1] * H_bc.shape[1])
 
             if i == 0:
                 H_fp_concat = H_fp.data
@@ -426,7 +426,7 @@ class InversionSetupRun:
                 YError_concat = y_err
                 t_concat = t
             else:
-                H_fp_concat = np.concatenate([H_fp_concat, H_fp.data], axis=0)
+                H_fp_concat = np.concatenate([H_fp_concat, H_fp.data], axis=1)
                 H_bc_concat = np.concatenate([H_bc_concat, H_bc.data], axis=0)
                 Y_concat = np.concatenate([Y_concat, y])
                 YError_concat = np.concatenate([YError_concat, y_err])
