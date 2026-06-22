@@ -1,4 +1,4 @@
-# multitracer.py
+    # multitracer.py
 # Created: 10 June 2026
 # Author: Eric Saboya
 # Copyright (c) 2026. All rights reserved.
@@ -174,7 +174,6 @@ def multitracer_inversion(data_dict_inputs: dict,
 
     print("t1", len(g1_ds_clean['time']))
     print("t2", len(g2_ds_clean['time']))
-
     print("Y1", np.max(Y1))
     print("Y2", np.max(Y2))
     print("H1", np.max(H1))
@@ -213,26 +212,28 @@ def multitracer_inversion(data_dict_inputs: dict,
     x1_bc_post = XaBC1 + (Bbc1 @ Hbc.T @ (Sinv11 @ delta_mf_1 + Sinv12 @ delta_mf_2))
     x2_bc_post = XaBC2 + (Bbc2 @ Gbc.T @ (Sinv21 @ delta_mf_1 + Sinv22 @ delta_mf_2))
 
-    # Calculate the posterior uncertainty for the fluxes and boundary conditions for both gases
-    lambda11 = 0 #(H1.T @ np.linalg.inv(R1) @ H1) + G.T @ np.linalg.inv(R2) @ G * (A_alpha ** 2) + np.linalg.inv(B11)
-    lambda12 = 0 #(H1.T @ np.linalg.inv(R1) @ H2)
-    lambda13 = 0 #(H1.T @ np.linalg.inv(R1) @ Hbc)
-    lambda14 = 0 #(G.T @ np.linalg.inv(R2) @ Gbc) * A_alpha
 
-    lambda21 = 0 #(H2.T @ np.linalg.inv(R1) @ H1)
-    lambda22 = 0 #(H2.T @ np.linalg.inv(R1) @ H2) + np.linalg.inv(B22)
-    lambda23 = 0 #(H2.T @ np.linalg.inv(R1) @ Hbc)
+
+    # Calculate the posterior uncertainty for the fluxes and boundary conditions for both gases
+    lambda11 = (H1.T @ np.linalg.inv(R1) @ H1) + G.T @ np.linalg.inv(R2) @ G * (A_alpha ** 2) + np.linalg.inv(B11)
+    lambda12 = (H1.T @ np.linalg.inv(R1) @ H2)
+    lambda13 = (H1.T @ np.linalg.inv(R1) @ Hbc)
+    lambda14 = (G.T @ np.linalg.inv(R2) @ Gbc) * A_alpha
+
+    lambda21 = (H2.T @ np.linalg.inv(R1) @ H1)
+    lambda22 = (H2.T @ np.linalg.inv(R1) @ H2) + np.linalg.inv(B22)
+    lambda23 = (H2.T @ np.linalg.inv(R1) @ Hbc)
     lambda24 = 0.0
 
-    lambda31 = 0 #(Hbc.T @ np.linalg.inv(R1) @ H1)
-    lambda32 = 0 #(Hbc.T @ np.linalg.inv(R1) @ H2)
-    lambda33 = 0 #(Hbc.T @ np.linalg.inv(R1) @ Hbc) + np.linalg.inv(Bbc1)
+    lambda31 = (Hbc.T @ np.linalg.inv(R1) @ H1)
+    lambda32 = (Hbc.T @ np.linalg.inv(R1) @ H2)
+    lambda33 = (Hbc.T @ np.linalg.inv(R1) @ Hbc) + np.linalg.inv(Bbc1)
     lambda34 = 0.0
 
-    lambda41 = 0 #(Gbc.T @ np.linalg.inv(R2) @ G.T) * A_alpha
+    lambda41 = (Gbc.T @ np.linalg.inv(R2) @ G) * A_alpha
     lambda42 = 0.0
     lambda43 = 0.0
-    lambda44 = 0 #(Gbc.T @ np.linalg.inv(R2) @ Gbc) + np.linalg.inv(Bbc2)
+    lambda44 = (Gbc.T @ np.linalg.inv(R2) @ Gbc) + np.linalg.inv(Bbc2)
 
     inversion_results = {
         "time": g1_ds_clean.time,
