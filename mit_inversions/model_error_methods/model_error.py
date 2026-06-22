@@ -105,18 +105,19 @@ class ModelError():
     
     def simple_model_error(self, obs, sim):
         """
-        Calculate a simple model error as the standard deviation of the observation-simulation residuals.
+        Calculate a simple model error as the mean absolute observation-simulation residual over the period.
 
         Parameters:
-        - obs (xarray.DataArray): 
+        - obs (xarray.DataArray):
             Observed concentrations.
-        - sim (xarray.DataArray): 
+        - sim (xarray.DataArray):
             Simulated concentrations from the model.
         """
-        residuals = obs - sim.mean(dim="flux_sector") - np.percentile(obs, 5)
-        model_error = np.abs(np.nanmean(residuals.values))
-        
-        return np.array([model_error] * len(obs))
+        bg = np.nanpercentile(obs.values, 5)
+        residuals = obs - sim.mean(dim="flux_sector") - bg
+        model_error = float(np.abs(np.nanmean(residuals.values)))
+
+        return np.full(obs.shape, model_error, dtype=float)
 
     def run(self):
         """
