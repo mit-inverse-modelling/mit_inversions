@@ -192,9 +192,11 @@ def forward_simulation(data_dict: dict)->dict:
         print("Generating pseudo-observations from perturbed flux field ...")
         pseudo_emissions_Gg = data_dict['observations'].get('pseudo_emissions_Gg', 50)
         
-        flux_dict_po = {"mode": "auto_generation", 
-                        "method": "population",
-                        "total_emissions_Gg": pseudo_emissions_Gg,
+        flux_dict_po = {"total":
+                            {"mode": "auto_generation", 
+                             "method": "population",
+                             "total_emissions_Gg": pseudo_emissions_Gg,
+                            },
                         }
             
         (fp_flux_grid_pt,
