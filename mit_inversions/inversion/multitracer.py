@@ -35,27 +35,22 @@ def multitracer_inversion(data_dict_inputs: dict,
     """
     # Prepare data for multitracer inversion
     #   Gas 1
-    (H_fp_concat, 
-     H_bc_concat, 
-     Y_concat, 
-     YError_concat, 
-     t_concat, 
-     flux_sector_bf, 
-     site_indicator,
-     obs_site_names, 
-     (H_fp_concat, 
-      H_bc_concat, 
-      Y_concat, 
-      YError_concat, 
-      t_concat, 
-      flux_sector_bf, 
-      site_indicator,
-      obs_site_names, 
-      bc_data_indicator) = InversionSetupRun(model_data_dict=fp_sens_out_gas1,
-                                             bc_dict=gas1_data_dict_bc,
-                                             flux_grid=flux_grid_1,
-                                             inverse_method=data_dict_inputs['inversion']['inverse_method'],
-                                             ).run_multitracer()
+    (
+        H_fp_concat,
+        H_bc_concat,
+        Y_concat,
+        YError_concat,
+        t_concat,
+        flux_sector_bf,
+        site_indicator,
+        obs_site_names,
+        bc_data_indicator,
+    ) = InversionSetupRun(
+        model_data_dict=fp_sens_out_gas1,
+        bc_dict=gas1_data_dict_bc,
+        flux_grid=flux_grid_1,
+        inverse_method=data_dict_inputs["inversion"]["inverse_method"],
+    ).run_multitracer()
      #   Gas 2
      (G_fp_concat, 
       G_bc_concat, 
