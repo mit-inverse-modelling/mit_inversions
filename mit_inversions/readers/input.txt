@@ -7,6 +7,7 @@
     "sites": "List of sites (str) to simulate atmospheric mole fractions and retrieve the corresponding observations." ,
     "species": "Atmospheric trace gas species of interest (str)." ,
     "base_data_dir": "Directory (str) pointing to the upper level of where data are stored.",
+    "output_dir": "Directory (str or pathlib.Path) where ARTEMIS outputs (NetCDF/figures) will be written.",
     "model_error_method": "Method used for capturing the model_error. Pick from [pollution_event_error, simple, zero]",
     
     "observations": {
