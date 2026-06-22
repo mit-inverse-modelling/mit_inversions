@@ -2,7 +2,7 @@
 # This dictionary documents the all the ARTEMIS input options.
 
 {
-    "start_date": "Date denoting the start of the period of interest in YYYY-DD-MM (str) format." ,
+    "start_date": "Date denoting the start of the period of interest in YYYY-MM-DD (str) format." ,
     "end_date": "Date denoting the end of the period interest, non-inclusive, in YYYY-MM-DD (str) format." ,
     "sites": "List of sites (str) to simulate atmospheric mole fractions and retrieve the corresponding observations." ,
     "species": "Atmospheric trace gas species of interest (str)." ,
