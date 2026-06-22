@@ -65,7 +65,6 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
 
 
     if basis_function_ds is None:
-
         if "bf_algorithm" in basis_function_args.keys():
             bf_algorithm = basis_function_args['bf_algorithm']
 
@@ -81,7 +80,7 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
                 print("Using Regional Sum basis function algorithm.")
                 fp_flux_grid_error = None
 
-        elif "bf_algorithm" is None or "bf_algorithm" not in basis_function_args.keys():
+        else:
             print("No basis function algorithm specified. Defaulting to 'regional_sum'.")
             bf_algorithm = "regional_sum"
             fp_flux_grid_error = None
@@ -107,6 +106,7 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
         )
 
     else:
+        # Use specified basis function dataset
         ds_basis_function = basis_function_ds
 
     # Apply country masking if specified
@@ -137,8 +137,6 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
         new_region_grid = df_bf_cmask['new_region_id'].values.reshape(original_shape)
 
         ds_basis_function['basis_function_grid'].data = new_region_grid
-
-
 
 
     # Stack basis function grid
