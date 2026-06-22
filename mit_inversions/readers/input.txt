@@ -1,0 +1,56 @@
+# Created 12 April 2026
+# This dictionary documents the all the ARTEMIS input options.
+
+{
+    "start_date": "Date denoting the start of the period of interest in YYYY-DD-MM (str) format." ,
+    "end_date": "Date denoting the end of the period interest, non-inclusive, in YYYY-MM-DD (str) format." ,
+    "sites": "List of sites (str) to simulate atmospheric mole fractions and retrieve the corresponding observations." ,
+    "species": "Atmospheric trace gas species of interest (str)." ,
+    "base_data_dir": "Directory (str) pointing to the upper level of where data are stored.",
+    "model_error_method": "Method used for capturing the model_error. Pick from [pollution_event_error, simple, zero]",
+    
+    "observations": {
+        "latest_release": "Boolean option on whether to use released AGAGE data or not.", 
+        "average": "Data averaging period to apply to data (e.g., str(3h) or None).",
+        "data_filters": "List of data filtering method to remove observations during times of stagnant air.",
+        "pseudo_observations": "Option to use pseudo-observations instead of real atmospheric mole fractions",
+        },
+
+    "footprints" : {
+        "site_inlets": "List of the air inlet heights modeled for each site | optional",
+        "lpdm": "Langragian Particle Disperion Model option - choose from NAME, FLEXPART.",
+        "met_model" : "List of corresponding meteorological field data used to drive the footprints for each site.",
+    },
+
+    "flux": {"sector1": {
+                    "mode": "One of customized or autogeneration, this sub-dict will show customized.",
+                    "path": "Full path to the file of prior fluxes to be used in the model.",
+                    "variable": "Input file variable name for the fluxes",
+                },
+            
+            "sector2": {
+                    "mode": "This shows the autogeneration option.",
+                    "total_emissions_Gg": "Total Gg/yr to distribute across the model domain.",
+                    "method": "Flux distribution method. One of: uniform_over_land, population, night_lights.",
+                    "region": "Regions to distribute amounts over. If None then distributes across whole model domain.",
+                },
+    },
+
+    "basis_functions" : {
+        "bf_algorithm": "Algorithm for calculating basis functions: one of regional_sum or iwasp.",
+        "target_regions": "No. of basis function regions to optimize for. NB., value likely to be much higher when country_masking is applied.",
+        "country_masking": "Boolean option to ensure basis functions do not overlap country borders or land-sea.",
+        "fp_flux_error": "Uncertainties for individual gridcells of the footprint-flux grid. Used for iWASP algorithm.",
+    },
+
+    "inversion": {
+        "inverse_method": "Inverse model method. Choose from: analytical, mcmc, etkf",
+        "inverse_kwargs": {
+                "emis_scaling_mean": "Mean scaling of the prior emissions PDF.",
+                "emis_scaling_sigma": "1-sigma values of the prior emissions PDF.",
+                "bc_scaling_mean": "Mean scaling of the BC prior PDF.",
+                "bc_scaling_sigma": "1-sigma values of the BC prior PDF.",
+            }
+        }
+
+}
