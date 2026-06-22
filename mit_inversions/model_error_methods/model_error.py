@@ -21,7 +21,7 @@ class ModelError():
     """
     def __init__(self, 
                  data: dict, 
-                 model_error_method: str="pollution_event_error"
+                 model_error_method: str="simple"
                  ):
         """
         Initialize the ModelError class with the model data and error method.
@@ -39,6 +39,7 @@ class ModelError():
         expected_methods = [
             "pollution_event_error",
             "simple",
+            'zero',
         ]
 
         if model_error_method in expected_methods:
@@ -119,6 +120,18 @@ class ModelError():
 
         return np.full(obs.shape, model_error, dtype=float)
 
+    def zero_model_error(self, obs, sim):
+        """
+        Calculate a zero model error.
+
+        Parameters:
+        - obs (xarray.DataArray):
+            Observed concentrations.
+        - sim (xarray.DataArray):
+            Simulated concentrations from the model.
+        """
+        return np.zeros(obs.shape, dtype=float)
+
     def run(self):
         """
         Wrapper function to calculate the model error using the selected method.
@@ -134,6 +147,8 @@ class ModelError():
                 model_error = self.pollution_event_minmodel_error(obs, sim)
             elif self.model_method == "simple":
                 model_error = self.simple_model_error(obs, sim)
+            elif self.model_method == "zero":
+                model_error = self.zero_model_error(obs, sim)
 
             self.model_data_dict[site]['mf_model_error'] = xr.DataArray(model_error, coords=obs.coords)
         
