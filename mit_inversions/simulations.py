@@ -221,15 +221,16 @@ def forward_simulation(data_dict: dict)->dict:
             mf_bg = np.nanpercentile(data_aligned_dict[site]['mf'].values.copy(), 5)
 
             # Replace original observations with pseudo-observations
+            # Replace original observations with pseudo-observations (aligned to the existing merged time axis)
             mf_sim_aligned = mf_sim_pt_site.reindex(
-                {"time": observations[site]['time']}, 
-                tolerance='1h', 
+                {"time": data_aligned_dict[site]["time"]},
+                tolerance='1h',
                 method="nearest"
-                ).dropna("time")        
-        
-            n = mf_sim_aligned.values.shape[0]
+                )
+
             sd = np.std(data_aligned_dict[site]['mf'].values)
-            data_aligned_dict[site]['mf'].values = mf_sim_aligned.values.flatten() + np.random.normal(loc=0, scale=sd* 0.15, size=n) + mf_bg
+            noise = np.random.normal(loc=0, scale=sd * 0.15, size=mf_sim_aligned.size)
+            data_aligned_dict[site]['mf'].data = mf_sim_aligned.data + noise + mf_bg
 
     # DATA FILTERING
     if data_dict['observations']['data_filters'] is not None:
