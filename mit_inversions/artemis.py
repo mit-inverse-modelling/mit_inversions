@@ -20,7 +20,7 @@ from mit_inversions.inversion.setup import InversionSetupRun
 from mit_inversions.sensitivity import inversion_grid_sensitivity
 from mit_inversions.model_error_methods.model_error import ModelError
 from mit_inversions.readers.boundary_conditions import BoundaryConditions
-from mit_inversions.inversion.post_processing import PostProcessing
+from mit_inversions.inversion.post_processing import PostProcessingDataOutputs
 
 def artemis(data_dict_inputs: dict):
    """
@@ -84,15 +84,16 @@ def artemis(data_dict_inputs: dict):
                                            inverse_kwargs=data_dict_inputs['inversion']['inverse_kwargs'],
                                            ).run()
    
-   post_processing_obj = PostProcessing(species=data_dict_inputs['species'],
-                                        start_date=data_dict_inputs['start_date'],
-                                        end_date=data_dict_inputs['end_date'],
-                                        inversion_results=inversion_data_out,
-                                        fp_sens_dict_out=fp_sens_dict_out,
-                                        atmospheric_transport_model=data_dict_inputs['footprints']['lpdm'],
-                                        inversion_method=data_dict_inputs['inversion']['inverse_method'],
-                                        output_dir=data_dict_inputs['output_dir'],
-                                        )
+   post_processing_obj = PostProcessingDataOutputs(species=data_dict_inputs['species'],
+                                                   start_date=data_dict_inputs['start_date'],
+                                                   end_date=data_dict_inputs['end_date'],
+                                                   inversion_results=inversion_data_out,
+                                                   fp_sens_dict_out=fp_sens_dict_out,
+                                                   atmospheric_transport_model=data_dict_inputs['footprints']['lpdm'],
+                                                   inversion_method=data_dict_inputs['inversion']['inverse_method'],
+                                                   output_dir=data_dict_inputs['output_dir'],
+                                                   )
+   
    # Process inversion results into FLUXIE format and calculate emissions by country
    (ds_molefraction, ds_flux) = post_processing_obj.fluxie()
    
@@ -107,10 +108,14 @@ def artemis(data_dict_inputs: dict):
    else:
       basis_method = basis_method_in
 
-   if data_dict_inputs["flux"]["mode"] == "customized":
-      flux_method = "customized"
-   elif data_dict_inputs["flux"]["mode"] == "auto_generated":
-      flux_method = data_dict_inputs["flux"]["method"]
+   flux_mode = []
+   for key in data_dict_inputs["flux"]:
+      flux_mode.append(data_dict_inputs["flux"][key]['mode'])
+   n = len(list(set(flux_mode)))
+   if n == 1:
+    flux_method = flux_mode[0]
+   else:
+      flux_method = "mixed"
 
    flux_fname_out = f"ARTEMIS_{species}_fluxes_{inverse_method}_{basis_method}_{flux_method}_{save_date}.nc"
    molefraction_fname_out = f"ARTEMIS_{species}_molefraction_{inverse_method}_{basis_method}_{flux_method}_{save_date}.nc"
@@ -237,4 +242,4 @@ def artemis_multitracer(data_dict_inputs: dict):
                                              flux_grid_1=flux_grid_1,
                                              flux_grid_2=flux_grid_2)
 
-   return inversion_results
+   return inversion_results, flux_grid_1, flux_grid_2, fp_sens_out_gas1, fp_sens_out_gas2
