@@ -43,26 +43,34 @@ def multitracer_inversion(data_dict_inputs: dict,
      flux_sector_bf, 
      site_indicator,
      obs_site_names, 
-     bc_data_indicator) = InversionSetupRun(model_data_dict=fp_sens_out_gas1,
-                                            bc_dict=gas1_data_dict_bc,
-                                            flux_grid=flux_grid_1,
-                                            inverse_method=data_dict_inputs['inverse_method'],
-                                            ).run_multitracer()
-    #   Gas 2
-    (G_fp_concat, 
-     G_bc_concat, 
-     Y_concat2, 
-     YError_concat2, 
-     t_concat2, 
-     flux_sector_bf2, 
-     site_indicator2, 
-     obs_site_names2, 
-     bc_data_indicator2) = InversionSetupRun(model_data_dict=fp_sens_out_gas2,
-                                             bc_dict=gas2_data_dict_bc,
-                                             flux_grid=flux_grid_2,
-                                             inverse_method=data_dict_inputs['inverse_method'],
-                                             basis_function_grid=fp_sens_out_gas1['.basis_function_grid']
+     (H_fp_concat, 
+      H_bc_concat, 
+      Y_concat, 
+      YError_concat, 
+      t_concat, 
+      flux_sector_bf, 
+      site_indicator,
+      obs_site_names, 
+      bc_data_indicator) = InversionSetupRun(model_data_dict=fp_sens_out_gas1,
+                                             bc_dict=gas1_data_dict_bc,
+                                             flux_grid=flux_grid_1,
+                                             inverse_method=data_dict_inputs['inversion']['inverse_method'],
                                              ).run_multitracer()
+     #   Gas 2
+     (G_fp_concat, 
+      G_bc_concat, 
+      Y_concat2, 
+      YError_concat2, 
+      t_concat2, 
+      flux_sector_bf2, 
+      site_indicator2, 
+      obs_site_names2, 
+      bc_data_indicator2) = InversionSetupRun(model_data_dict=fp_sens_out_gas2,
+                                              bc_dict=gas2_data_dict_bc,
+                                              flux_grid=flux_grid_2,
+                                              inverse_method=data_dict_inputs['inversion']['inverse_method'],
+                                              basis_function_grid=fp_sens_out_gas1['.basis_function_grid']
+                                              ).run_multitracer()
 
     # Create standard time array for both gases (assuming same time range and frequency)
     t_standard = pd.date_range(start=data_dict_inputs['start_date'], end=data_dict_inputs['end_date'], freq="1H")
