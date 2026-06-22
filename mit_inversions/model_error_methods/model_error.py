@@ -116,7 +116,7 @@ class ModelError():
         """
         bg = np.nanpercentile(obs.values, 5)
         residuals = obs - sim.mean(dim="flux_sector") - bg
-        model_error = float(np.abs(np.nanmean(residuals.values)))
+        model_error = float(np.nanmean(np.abs(residuals.values)))
 
         return np.full(obs.shape, model_error, dtype=float)
 
