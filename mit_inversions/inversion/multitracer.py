@@ -74,8 +74,7 @@ def multitracer_inversion(data_dict_inputs: dict,
 
     # Create standard time array for both gases (assuming same time range and frequency)
     t_standard = pd.date_range(start=data_dict_inputs['start_date'], end=data_dict_inputs['end_date'], freq="1H")
-    t_standard_xr = xr.DataArray({"t_standard": (["t_standard"], t_standard)})
-
+    t_standard_xr = xr.DataArray(t_standard, dims=["time"], coords={"time": t_standard})
     # Create xarray datasets for each gas
     # Gas 1
     g1_vars = {
