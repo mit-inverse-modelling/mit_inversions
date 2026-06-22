@@ -416,8 +416,8 @@ class InversionSetupRun:
             site_indicator.extend([i] * len(t))
             obs_site_names.extend([site] * len(t))
             if i==0:
-                bc_data_indicator.extend([0] * H_fp.shape[1])
-                bc_data_indicator.extend([1] * H_bc.shape[1])
+                bc_data_indicator.extend([0] * H_fp.shape[2])
+                bc_data_indicator.extend([1] * H_bc.shape[2])
 
             if i == 0:
                 H_fp_concat = H_fp.data
