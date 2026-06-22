@@ -175,17 +175,16 @@ class FootprintFlux():
         if not isinstance(self.flux, dict):
             raise ValueError("flux must be provided as a dictionary.")
 
-        for flux_sector in self.flux.keys():
-            mode = str(self.flux[flux_sector].get("mode", "")).strip().lower()
+        for flux_sector, cfg in self.flux.items():
+            if not isinstance(cfg, dict):
+                raise ValueError(f"flux['{flux_sector}'] must be a dictionary of flux settings.")
+            mode = str(cfg.get("mode", "")).strip().lower()
             if mode not in {"auto_generation", "customized"}:
                 raise ValueError(f"flux['{flux_sector}']['mode'] must be either 'auto_generation' or 'customized'.")
-        
-        # mode = str(self.flux.get("mode", "")).strip().lower()
-        # if mode not in {"auto_generation", "customized"}:
-            # raise ValueError("flux['mode'] must be either 'auto_generation' or 'customized'.")
+            cfg["mode"] = mode
 
         for flux_sector in self.flux.keys():
-            mode = str(self.flux[flux_sector].get("mode", "")).strip().lower()
+            mode = self.flux[flux_sector]["mode"]
 
             if mode == "auto_generation":
                 if "total_emissions_Gg" not in self.flux[flux_sector]:
