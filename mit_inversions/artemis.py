@@ -89,6 +89,7 @@ def artemis(data_dict_inputs: dict):
                                                    end_date=data_dict_inputs['end_date'],
                                                    inversion_results=inversion_data_out,
                                                    fp_sens_dict_out=fp_sens_dict_out,
+                                                   flux_grid_prior=flux_grid_prior,
                                                    atmospheric_transport_model=data_dict_inputs['footprints']['lpdm'],
                                                    inversion_method=data_dict_inputs['inversion']['inverse_method'],
                                                    output_dir=data_dict_inputs['output_dir'],
