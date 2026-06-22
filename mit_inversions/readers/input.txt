@@ -23,13 +23,13 @@
     },
 
     "flux": {"sector1": {
-                    "mode": "One of customized or autogeneration, this sub-dict will show customized.",
+                    "mode": "One of customized or auto_generation; this sub-dict will show customized.",
                     "path": "Full path to the file of prior fluxes to be used in the model.",
                     "variable": "Input file variable name for the fluxes",
                 },
             
             "sector2": {
-                    "mode": "This shows the autogeneration option.",
+                    "mode": "This shows the auto_generation option.",
                     "total_emissions_Gg": "Total Gg/yr to distribute across the model domain.",
                     "method": "Flux distribution method. One of: uniform_over_land, population, night_lights.",
                     "region": "Regions to distribute amounts over. If None then distributes across whole model domain.",
