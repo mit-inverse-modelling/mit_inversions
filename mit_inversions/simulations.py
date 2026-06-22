@@ -228,9 +228,9 @@ def forward_simulation(data_dict: dict)->dict:
                 method="nearest"
                 )
 
-            sd = np.std(data_aligned_dict[site]['mf'].values)
+            sd = np.nanstd(data_aligned_dict[site]["mf"].values)
             noise = np.random.normal(loc=0, scale=sd * 0.15, size=mf_sim_aligned.size)
-            data_aligned_dict[site]['mf'].data = mf_sim_aligned.data + noise + mf_bg
+            data_aligned_dict[site]["mf"].data = mf_sim_aligned.data + noise + mf_bg
 
     # DATA FILTERING
     if data_dict['observations']['data_filters'] is not None:
