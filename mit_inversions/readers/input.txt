@@ -1,5 +1,5 @@
 # Created 12 April 2026
-# This dictionary documents the all the ARTEMIS input options.
+# This dictionary documents all the ARTEMIS input options.
 
 {
     "start_date": "Date denoting the start of the period of interest in YYYY-MM-DD (str) format." ,
