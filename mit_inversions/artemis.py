@@ -113,7 +113,7 @@ def artemis(data_dict_inputs: dict):
       flux_mode.append(data_dict_inputs["flux"][key]['mode'])
    n = len(list(set(flux_mode)))
    if n == 1:
-    flux_method = flux_mode[0]
+      flux_method = flux_mode[0]
    else:
       flux_method = "mixed"
 
