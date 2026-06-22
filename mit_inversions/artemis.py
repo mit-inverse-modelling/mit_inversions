@@ -84,6 +84,11 @@ def artemis(data_dict_inputs: dict):
                                            inverse_kwargs=data_dict_inputs['inversion']['inverse_kwargs'],
                                            ).run()
    
+   from pathlib import Path
+   output_dir = Path(data_dict_inputs.get('output_dir', '.')).expanduser()
+   output_dir.mkdir(parents=True, exist_ok=True)
+   data_dict_inputs['output_dir'] = output_dir
+
    post_processing_obj = PostProcessingDataOutputs(species=data_dict_inputs['species'],
                                                    start_date=data_dict_inputs['start_date'],
                                                    end_date=data_dict_inputs['end_date'],
@@ -92,7 +97,7 @@ def artemis(data_dict_inputs: dict):
                                                    flux_grid_prior=flux_grid_prior,
                                                    atmospheric_transport_model=data_dict_inputs['footprints']['lpdm'],
                                                    inversion_method=data_dict_inputs['inversion']['inverse_method'],
-                                                   output_dir=data_dict_inputs['output_dir'],
+                                                   output_dir=output_dir,
                                                    )
    
    # Process inversion results into FLUXIE format and calculate emissions by country
