@@ -188,49 +188,49 @@ def forward_simulation(data_dict: dict)->dict:
     # Align forward simulations to observations
     data_aligned_dict = data_merge(observations, fp_flux_grid, mf_sim, fps)
     
-    if data_dict['observations']['pseudo_observations'] is True:
-        print("Generating pseudo-observations from perturbed flux field ...")
-        pseudo_emissions_Gg = data_dict['observations'].get('pseudo_emissions_Gg', 50)
-        
-        flux_dict_po = {"total":
-                            {"mode": "auto_generation", 
-                             "method": "population",
-                             "total_emissions_Gg": pseudo_emissions_Gg,
-                            },
-                        }
+    if "pseudo_observations" in data_dict['observations']:
+        if data_dict['observations']['pseudo_observations'] is True:
+            print("Generating pseudo-observations from perturbed flux field ...")
+            pseudo_emissions_Gg = data_dict['observations'].get('pseudo_emissions_Gg', 50)
             
-        (fp_flux_grid_pt,
-        mf_sim_pt,
-        flux_grid_pt,
-        fps_pt,
-        ) = FootprintFlux(start_date=data_dict['start_date'],
-                          end_date=data_dict['end_date'],
-                          sites=data_dict['sites'],
-                          site_inlets=data_dict['footprints'].get('site_inlets'),
-                          lpdm=data_dict['footprints']['lpdm'],
-                          met_model=met_model,
-                          species=data_dict['species'],
-                          flux=flux_dict_po,
-                          base_data_dir=data_dict['base_data_dir'],
-                          ).align_flux_footprint()
-        
-        for site in observations.keys():
-            # Add random noise to the simulated mole fractions to create pseudo-observations
-            mf_sim_pt_site = mf_sim_pt.sel({"site": site}).sum(dim="flux_sector")
+            flux_dict_po = {"total":
+                                {"mode": "auto_generation", 
+                                "method": "population",
+                                "total_emissions_Gg": pseudo_emissions_Gg,
+                                },
+                            }
+                
+            (fp_flux_grid_pt,
+            mf_sim_pt,
+            flux_grid_pt,
+            fps_pt,
+            ) = FootprintFlux(start_date=data_dict['start_date'],
+                            end_date=data_dict['end_date'],
+                            sites=data_dict['sites'],
+                            site_inlets=data_dict['footprints'].get('site_inlets'),
+                            lpdm=data_dict['footprints']['lpdm'],
+                            met_model=met_model,
+                            species=data_dict['species'],
+                            flux=flux_dict_po,
+                            base_data_dir=data_dict['base_data_dir'],
+                            ).align_flux_footprint()
+            
+            for site in observations.keys():
+                # Add random noise to the simulated mole fractions to create pseudo-observations
+                mf_sim_pt_site = mf_sim_pt.sel({"site": site}).sum(dim="flux_sector")
 
-            mf_bg = np.nanpercentile(data_aligned_dict[site]['mf'].values.copy(), 5)
+                mf_bg = np.nanpercentile(data_aligned_dict[site]['mf'].values.copy(), 5)
 
-            # Replace original observations with pseudo-observations
-            # Replace original observations with pseudo-observations (aligned to the existing merged time axis)
-            mf_sim_aligned = mf_sim_pt_site.reindex(
-                {"time": data_aligned_dict[site]["time"]},
-                tolerance='1h',
-                method="nearest"
-                )
-
-            sd = np.nanstd(data_aligned_dict[site]["mf"].values)
-            noise = np.random.normal(loc=0, scale=sd * 0.15, size=mf_sim_aligned.size)
-            data_aligned_dict[site]["mf"].data = mf_sim_aligned.data + noise + mf_bg
+                # Replace original observations with pseudo-observations (aligned to the existing merged time axis)
+                mf_sim_aligned = mf_sim_pt_site.reindex(
+                    {"time": data_aligned_dict[site]["time"]},
+                    tolerance='1h',
+                    method="nearest"
+                    )
+                
+                sd = np.nanstd(data_aligned_dict[site]["mf"].values)
+                noise = np.random.normal(loc=0, scale=sd * 0.15, size=mf_sim_aligned.size)
+                data_aligned_dict[site]["mf"].data = mf_sim_aligned.data.magnitude + noise + mf_bg
 
     # DATA FILTERING
     if data_dict['observations']['data_filters'] is not None:
