@@ -418,7 +418,11 @@ class FootprintFlux():
 
         with xr.open_dataset(flux_path) as flux_ds:
             flux_loaded = flux_ds.load()
-        return self._standardize_flux_dataset(flux_loaded, self.flux["variable"])
+        
+        if flux_sector is not None:
+            return self._standardize_flux_dataset(flux_loaded, self.flux[flux_sector]["variable"])
+        else:
+            return self._standardize_flux_dataset(flux_loaded, self.flux["variable"])
 
 
     def regrid_flux_to_footprint(self, 
