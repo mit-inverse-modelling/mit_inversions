@@ -1,11 +1,11 @@
 # footprint_flux_reader.py
 # Created: 16 March 2026
-# Author: Eric Saboya
+# Authors: Eric Saboya, Minde An, Luke Western
 # Copyright (c) 2026. All rights reserved.
 # License: MIT License
 # 
 # Description: 
-#   This module retrieve and processes footprint and flux data for specified sites, date ranges, and
+#   This module retrieves and processes footprint and flux data for specified sites, date ranges, and
 #   flux/lpdm models. It includes the FootprintFlux class, which has methods for validating inputs,
 #   loading footprint and flux data, regridding flux data to the footprint grid, and aligning the
 #   data for use in inverse modeling and forward simulations. 
@@ -175,47 +175,54 @@ class FootprintFlux():
         if not isinstance(self.flux, dict):
             raise ValueError("flux must be provided as a dictionary.")
 
-        mode = str(self.flux.get("mode", "")).strip().lower()
-        if mode not in {"auto_generation", "customized"}:
-            raise ValueError("flux['mode'] must be either 'auto_generation' or 'customized'.")
+        for flux_sector, cfg in self.flux.items():
+            if not isinstance(cfg, dict):
+                raise ValueError(f"flux['{flux_sector}'] must be a dictionary of flux settings.")
+            mode = str(cfg.get("mode", "")).strip().lower()
+            if mode not in {"auto_generation", "customized"}:
+                raise ValueError(f"flux['{flux_sector}']['mode'] must be either 'auto_generation' or 'customized'.")
+            cfg["mode"] = mode
 
-        self.flux["mode"] = mode
-        if mode == "auto_generation":
-            if "total_emissions_Gg" not in self.flux:
-                raise ValueError("flux['total_emissions_Gg'] must be provided for auto_generation.")
-            if "method" not in self.flux or not str(self.flux["method"]).strip():
-                raise ValueError("flux['method'] must be provided for auto_generation.")
+        for flux_sector in self.flux.keys():
+            mode = self.flux[flux_sector]["mode"]
 
-            self.flux["method"] = str(self.flux["method"]).strip().lower()
-            region = self.flux.get("region")
-            if region is not None:
-                if not isinstance(region, dict):
-                    raise ValueError("flux['region'] must be a dictionary with lat/lon bounds.")
-                required_keys = {"lat_min", "lat_max", "lon_min", "lon_max"}
-                missing = required_keys.difference(region.keys())
-                if missing:
-                    missing_str = ", ".join(sorted(missing))
-                    raise ValueError(f"flux['region'] is missing required keys: {missing_str}")
-                self.flux["region_portion"] = float(self.flux.get("region_portion", 1.0))
-                if not 0.0 <= self.flux["region_portion"] <= 1.0:
-                    raise ValueError("flux['region_portion'] must be between 0 and 1.")
+            if mode == "auto_generation":
+                if "total_emissions_Gg" not in self.flux[flux_sector]:
+                    raise ValueError(f"flux['{flux_sector}']['total_emissions_Gg'] must be provided for auto_generation.")
+                if "method" not in self.flux[flux_sector] or not str(self.flux[flux_sector]["method"]).strip():
+                    raise ValueError(f"flux['{flux_sector}']['method'] must be provided for auto_generation.")
 
-                outside_method = self.flux.get("outside_method")
-                if self.flux["region_portion"] < 1.0 and not outside_method:
-                    raise ValueError("flux['outside_method'] must be provided when region_portion is less than 1.")
+                self.flux[flux_sector]["method"] = str(self.flux[flux_sector]["method"]).strip().lower()
+                region = self.flux[flux_sector].get("region")
+                if region is not None:
+                    if not isinstance(region, dict):
+                        raise ValueError(f"flux['{flux_sector}']['region'] must be a dictionary with lat/lon bounds.")
+                    required_keys = {"lat_min", "lat_max", "lon_min", "lon_max"}
+                    missing = required_keys.difference(region.keys())
+                    if missing:
+                        missing_str = ", ".join(sorted(missing))
+                        raise ValueError(f"flux['{flux_sector}']['region'] is missing required keys: {missing_str}")
+                self.flux[flux_sector]["region_portion"] = float(self.flux[flux_sector].get("region_portion", 1.0))
+                if not 0.0 <= self.flux[flux_sector]["region_portion"] <= 1.0:
+                    raise ValueError(f"flux['{flux_sector}']['region_portion'] must be between 0 and 1.")
+
+                outside_method = self.flux[flux_sector].get("outside_method")
+                if self.flux[flux_sector]["region_portion"] < 1.0 and not outside_method:
+                    raise ValueError(f"flux['{flux_sector}']['outside_method'] must be provided when region_portion is less than 1.")
                 if outside_method is not None:
-                    self.flux["outside_method"] = str(outside_method).strip().lower()
+                    self.flux[flux_sector]["outside_method"] = str(outside_method).strip().lower()
+                else:
+                    self.flux[flux_sector]["region_portion"] = float(self.flux[flux_sector].get("region_portion", 1.0))
+        
             else:
-                self.flux["region_portion"] = float(self.flux.get("region_portion", 1.0))
-        else:
-            path = self.flux.get("path")
-            variable = self.flux.get("variable")
-            if not path:
-                raise ValueError("flux['path'] must be provided for customized mode.")
-            if not variable:
-                raise ValueError("flux['variable'] must be provided for customized mode.")
-            self.flux["path"] = str(path)
-            self.flux["variable"] = str(variable)
+                path = self.flux[flux_sector].get("path")
+                variable = self.flux[flux_sector].get("variable")
+                if not path:
+                    raise ValueError(f"flux['{flux_sector}']['path'] must be provided for customized mode.")
+                if not variable:
+                    raise ValueError(f"flux['{flux_sector}']['variable'] must be provided for customized mode.")
+                self.flux[flux_sector]["path"] = str(path)
+                self.flux[flux_sector]["variable"] = str(variable)
     
     def _generate_month_range(self)->list:
         """
@@ -366,32 +373,56 @@ class FootprintFlux():
             and np.array_equal(flux_data["lon"].values, footprint_data["longitude"].values)
         )
 
-    def _load_auto_generated_flux(self, footprint_data: xr.Dataset) -> xr.Dataset:
+    def _load_auto_generated_flux(self, footprint_data: xr.Dataset, flux_sector: str = None) -> xr.Dataset:
         """Generate a flux prior directly on the footprint grid."""
-        flux_ds = generate_emissions_distribution(
-            total_Gg=self.flux["total_emissions_Gg"],
-            method=self.flux["method"],
-            year=int(self.start_date[0:4]),
-            lats=footprint_data["latitude"].values,
-            lons=footprint_data["longitude"].values,
-            nightlights_path=self.flux.get("nightlights_path"),
-            population_path=self.flux.get("population_path"),
-            base_data_dir=self.base_data_dir,
-            region=self.flux.get("region"),
-            region_portion=self.flux.get("region_portion", 1.0),
-            outside_method=self.flux.get("outside_method"),
-        )
-        return self._standardize_flux_dataset(flux_ds, "flux")
+        if flux_sector is None:
+            flux_ds = generate_emissions_distribution(
+                total_Gg=self.flux["total_emissions_Gg"],
+                method=self.flux["method"],
+                year=int(self.start_date[0:4]),
+                lats=footprint_data["latitude"].values,
+                lons=footprint_data["longitude"].values,
+                nightlights_path=self.flux.get("nightlights_path"),
+                population_path=self.flux.get("population_path"),
+                base_data_dir=self.base_data_dir,
+                region=self.flux.get("region"),
+                region_portion=self.flux.get("region_portion", 1.0),
+                outside_method=self.flux.get("outside_method"),
+            )
+            return self._standardize_flux_dataset(flux_ds, "flux")
+        else:
+            flux_ds = generate_emissions_distribution(
+                total_Gg=self.flux[flux_sector]["total_emissions_Gg"],
+                method=self.flux[flux_sector]["method"],
+                year=int(self.start_date[0:4]),
+                lats=footprint_data["latitude"].values,
+                lons=footprint_data["longitude"].values,
+                nightlights_path=self.flux[flux_sector].get("nightlights_path"),
+                population_path=self.flux[flux_sector].get("population_path"),
+                base_data_dir=self.base_data_dir,
+                region=self.flux[flux_sector].get("region"),
+                region_portion=self.flux[flux_sector].get("region_portion", 1.0),
+                outside_method=self.flux[flux_sector].get("outside_method"),
+            )
 
-    def _load_customized_flux(self) -> xr.Dataset:
+            return self._standardize_flux_dataset(flux_ds, "flux")
+
+    def _load_customized_flux(self, flux_sector: str = None) -> xr.Dataset:
         """Load a customized prior from a user-provided NetCDF file."""
-        flux_path = Path(self.flux["path"]).expanduser()
+        if flux_sector is None:
+            flux_path = Path(self.flux["path"]).expanduser()
+        else:
+            flux_path = Path(self.flux[flux_sector]["path"]).expanduser()
         if not flux_path.exists():
             raise FileNotFoundError(f"Customized flux file not found: {flux_path}")
 
         with xr.open_dataset(flux_path) as flux_ds:
             flux_loaded = flux_ds.load()
-        return self._standardize_flux_dataset(flux_loaded, self.flux["variable"])
+        
+        if flux_sector is not None:
+            return self._standardize_flux_dataset(flux_loaded, self.flux[flux_sector]["variable"])
+        else:
+            return self._standardize_flux_dataset(flux_loaded, self.flux["variable"])
 
 
     def regrid_flux_to_footprint(self, 
@@ -617,14 +648,20 @@ class FootprintFlux():
         self._check_common_inputs()
         self._check_flux_inputs()
 
-        if self.flux["mode"] == "auto_generation":
-            flux_ds = self._load_auto_generated_flux(footprint_data)
-            print("Successfully generated flux prior on the footprint grid.")
-        else:
-            flux_ds = self._load_customized_flux()
-            print(f"Successfully loaded customized flux prior from {self.flux['path']}")
+        fluxes_dict = {}
 
-        self.fluxes = {"prior": flux_ds}
+        for flux_sector in self.flux.keys():
+            if self.flux[flux_sector]["mode"] == "auto_generation":
+                flux_ds = self._load_auto_generated_flux(footprint_data, flux_sector)
+                print("Successfully generated flux prior on the footprint grid.")
+            else:
+                flux_ds = self._load_customized_flux(flux_sector)
+                print(f"Successfully loaded customized flux prior from {self.flux[flux_sector]['path']}")
+
+            fluxes_dict[flux_sector] = flux_ds
+
+        # self.fluxes = {"prior": flux_ds}
+        self.fluxes = fluxes_dict
         return self.fluxes
 
     def unit_registry(self)-> pint.UnitRegistry:
