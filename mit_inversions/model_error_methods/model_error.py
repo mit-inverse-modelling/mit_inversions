@@ -21,7 +21,7 @@ class ModelError():
     """
     def __init__(self, 
                  data: dict, 
-                 model_error_method: str="pollution_event_error"
+                 model_error_method: str="simple"
                  ):
         """
         Initialize the ModelError class with the model data and error method.
@@ -38,6 +38,8 @@ class ModelError():
 
         expected_methods = [
             "pollution_event_error",
+            "simple",
+            'zero',
         ]
 
         if model_error_method in expected_methods:
@@ -102,6 +104,34 @@ class ModelError():
 
         return model_error
     
+    def simple_model_error(self, obs, sim):
+        """
+        Calculate a simple model error as the mean absolute observation-simulation residual over the period.
+
+        Parameters:
+        - obs (xarray.DataArray):
+            Observed concentrations.
+        - sim (xarray.DataArray):
+            Simulated concentrations from the model.
+        """
+        bg = np.nanpercentile(obs.values, 5)
+        residuals = obs - sim.mean(dim="flux_sector") - bg
+        model_error = float(np.nanmean(np.abs(residuals.values)))
+
+        return np.full(obs.shape, model_error, dtype=float)
+
+    def zero_model_error(self, obs, sim):
+        """
+        Calculate a zero model error.
+
+        Parameters:
+        - obs (xarray.DataArray):
+            Observed concentrations.
+        - sim (xarray.DataArray):
+            Simulated concentrations from the model.
+        """
+        return np.zeros(obs.shape, dtype=float)
+
     def run(self):
         """
         Wrapper function to calculate the model error using the selected method.
@@ -115,7 +145,10 @@ class ModelError():
             # Calculate model error
             if self.model_method == "pollution_event_error":
                 model_error = self.pollution_event_minmodel_error(obs, sim)
-            
+            elif self.model_method == "simple":
+                model_error = self.simple_model_error(obs, sim)
+            elif self.model_method == "zero":
+                model_error = self.zero_model_error(obs, sim)
 
             self.model_data_dict[site]['mf_model_error'] = xr.DataArray(model_error, coords=obs.coords)
         

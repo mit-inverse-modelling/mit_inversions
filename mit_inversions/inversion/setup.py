@@ -24,7 +24,8 @@ class InversionSetupRun:
                  bc_dict, 
                  flux_grid, 
                  inverse_method,
-                 inverse_kwargs=None):
+                 inverse_kwargs=None,
+                 basis_function_grid=None):
         """
         Initialize inversion setup with model data, boundary conditions, 
         flux grid, and inversion method.
@@ -38,6 +39,11 @@ class InversionSetupRun:
 
         self.inverse_method = inverse_method.lower()
         self.inverse_kwargs = inverse_kwargs or {}
+
+        if basis_function_grid is None:
+            self.basis_function_grid = self.fp_sens_dict_out[".basis_function_grid"]
+        else:
+            self.basis_function_grid = basis_function_grid
 
     def _build_prior_state_and_covariance(self, n_bc):
         """
@@ -98,8 +104,25 @@ class InversionSetupRun:
         # Update site names for indexing
         self._update_sitenames()
 
+        # # Create basis function grid for mapping flux grid to
+        # bf_grid_stack = self.basis_function_grid.stack(space=('latitude', 'longitude')).data
+        # basis_function_matrix = np.zeros((len(bf_grid_stack), np.nanmax(bf_grid_stack)+1))
+        # for i in range(np.nanmax(bf_grid_stack)+1):
+        #     basis_function_matrix[:, i] = (bf_grid_stack == i).astype(int)
+
+        # # Map a priori flux grid to basis function regions
+        # flux_grid_prior_sectors_bf = []
+        # for si, flux_sector in enumerate(self.fp_sens_dict_out[self.site_eg]['flux_sector'].values):
+        #     flux_grid_prior_s = self.flux_grid_prior['flux'].sel(flux_sector=flux_sector).stack(space=('latitude', 'longitude')).data
+
+        #     flux_grid_prior_region = np.reshape(flux_grid_prior_s, (1, len(flux_grid_prior_s))) @ basis_function_matrix
+        #     flux_grid_prior_sectors_bf.append(xr.Dataset({"flux_bf": (["region"], flux_grid_prior_region[0,:])},
+        #                                            coords={"region": (["region"], self.fp_sens_dict_out[self.site_eg]['region'].values)}))
+    
+        # self.flux_prior_sector = xr.concat(flux_grid_prior_sectors_bf, dim="flux_sector").assign_coords(flux_sector=self.fp_sens_dict_out[self.site_eg]['flux_sector'].values)
+
         # Create basis function grid for mapping flux grid to
-        bf_grid_stack = self.fp_sens_dict_out['.basis_function_grid'].stack(space=('latitude', 'longitude')).data
+        bf_grid_stack = self.basis_function_grid.stack(space=('latitude', 'longitude')).data
         basis_function_matrix = np.zeros((len(bf_grid_stack), np.nanmax(bf_grid_stack)+1))
         for i in range(np.nanmax(bf_grid_stack)+1):
             basis_function_matrix[:, i] = (bf_grid_stack == i).astype(int)
@@ -107,13 +130,27 @@ class InversionSetupRun:
         # Map a priori flux grid to basis function regions
         flux_grid_prior_sectors_bf = []
         for si, flux_sector in enumerate(self.fp_sens_dict_out[self.site_eg]['flux_sector'].values):
-            flux_grid_prior_s = self.flux_grid_prior['flux'].sel(flux_sector=flux_sector).stack(space=('latitude', 'longitude')).data
+            rmask = []
+            region_s = []
+            for reg in self.fp_sens_dict_out[self.site_eg]['region'].values:
+                if flux_sector in reg:
+                    region_s.append(reg.split("-")[1])
+                    rmask.append(True)
+                else:
+                    rmask.append(False)
 
+            flux_grid_prior_s = self.flux_grid_prior['flux'].sel(flux_sector=flux_sector).stack(space=('latitude', 'longitude')).data
             flux_grid_prior_region = np.reshape(flux_grid_prior_s, (1, len(flux_grid_prior_s))) @ basis_function_matrix
-            flux_grid_prior_sectors_bf.append(xr.Dataset({"flux_bf": (["region"], flux_grid_prior_region[0,:])},
-                                                   coords={"region": (["region"], self.fp_sens_dict_out[self.site_eg]['region'].values)}))
+
+            flux_grid_prior_sectors_bf.append(flux_grid_prior_region[0,:])
+        
+        flux_prior_sector = xr.Dataset({"flux_bf": (["flux_sector", "region"], np.array(flux_grid_prior_sectors_bf))},
+                                       coords = {"flux_sector": (["flux_sector"], self.fp_sens_dict_out[self.site_eg]['flux_sector'].values),
+                                                 "region": (["region"], np.array(region_s))}
+                                       )
     
-        self.flux_prior_sector = xr.concat(flux_grid_prior_sectors_bf, dim="flux_sector").assign_coords(flux_sector=self.fp_sens_dict_out[self.site_eg]['flux_sector'].values)
+        self.flux_prior_sector = flux_prior_sector
+        return self.flux_prior_sector
 
     def _add_boundary_conditions_H(self):
         """
@@ -332,3 +369,71 @@ class InversionSetupRun:
         }
 
         return data_dict_out
+
+    def run_multitracer(self):
+        """
+        Wrapper function to run all setup steps for the multitracer inversion.
+        """
+
+        # Map fluxes to basis function grid and add boundary condition sensitivities 
+        self._map_flux_to_basis_function_grid()
+        self._add_boundary_conditions_H()
+
+        site_indicator = []
+        obs_site_names = []
+        bc_data_indicator = []
+
+        for i, site in enumerate(self.sites):
+            Hfp = []
+            for flux_sector in self.fp_sens_dict_out[site]['flux_sector'].values:
+                region_s = []
+                for reg in self.fp_sens_dict_out[site]['region'].values:
+                    if flux_sector in reg:
+                        region_s.append(reg)
+                fpXflux_bf = self.fp_sens_dict_out[site]['H'].sel(region=region_s)
+                region_s = np.array(region_s).astype(str)
+
+                region_new = []
+                for reg in region_s:
+                    reg_split = reg.split("-")
+                    region_new.append(reg_split[1])
+
+                fpXflux_bf = fpXflux_bf.assign_coords(region=np.array(region_new))
+                H_fp_sector = (fpXflux_bf / self.flux_prior_sector['flux_bf'].sel(flux_sector=flux_sector)).fillna(0)
+                Hfp.append(H_fp_sector)
+
+            H_fp = xr.concat(Hfp, dim="flux_sector")
+            H_bc = self.fp_sens_dict_out[site]['Hbc']
+
+            t = self.fp_sens_dict_out[site]['time'].values
+            y = self.fp_sens_dict_out[site]['mf'].values
+
+            sig1 = np.nan_to_num(self.fp_sens_dict_out[site]['mf_variability'].values) ** 2
+            sig2 = np.nan_to_num(self.fp_sens_dict_out[site]['mf_repeatability'].values) ** 2
+            sig3 = np.nan_to_num(self.fp_sens_dict_out[site]['mf_model_error'].values) ** 2
+            y_err = np.sqrt(sig1 + sig2 + sig3)
+
+            site_indicator.extend([i] * len(t))
+            obs_site_names.extend([site] * len(t))
+            if i==0:
+                bc_data_indicator.extend([0] * H_fp.shape[2])
+                bc_data_indicator.extend([1] * H_bc.shape[1])
+
+            if i == 0:
+                H_fp_concat = H_fp.data
+                H_bc_concat = H_bc.data
+                Y_concat = y
+                YError_concat = y_err
+                t_concat = t
+            else:
+                H_fp_concat = np.concatenate([H_fp_concat, H_fp.data], axis=1)
+                H_bc_concat = np.concatenate([H_bc_concat, H_bc.data], axis=0)
+                Y_concat = np.concatenate([Y_concat, y])
+                YError_concat = np.concatenate([YError_concat, y_err])
+                t_concat = np.concatenate([t_concat, t])
+
+        nH = H_fp_concat.shape[1]
+        nHB = H_bc_concat.shape[1]
+        bc_data_indicator = np.array(bc_data_indicator, dtype=int)
+
+        return H_fp_concat, H_bc_concat, Y_concat, YError_concat, t_concat, self.flux_prior_sector['flux_bf'], site_indicator, obs_site_names, bc_data_indicator
