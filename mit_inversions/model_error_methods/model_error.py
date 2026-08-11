@@ -114,9 +114,9 @@ class ModelError():
         - sim (xarray.DataArray):
             Simulated concentrations from the model.
         """
-        bg = np.nanpercentile(obs.values, 5)
-        residuals = obs - sim.mean(dim="flux_sector") - bg
-        model_error = float(np.nanmean(np.abs(residuals.values)))
+        bg = np.nanpercentile(obs.values, 10)
+        residuals = obs - sim.sum(dim="flux_sector") - bg
+        model_error = float(np.nanmedian(np.abs(residuals.values)))
 
         return np.full(obs.shape, model_error, dtype=float)
 
