@@ -236,6 +236,7 @@ class InversionSetupRun:
                 Y_concat = np.concatenate([Y_concat, y])
                 YError_concat = np.concatenate([YError_concat, y_err])
                 t_concat = np.concatenate([t_concat, t])
+        R = YError_concat ** 2
 
         nH = H_fp_concat.shape[1]
         nHB = H_bc_concat.shape[1]
@@ -244,11 +245,11 @@ class InversionSetupRun:
         if self.inverse_method in ["analytical", "etkf"]:
 
             # xa is the prior mean state and xa_error is the prior covariance (P).
-            xa, xa_error = self._build_prior_state_and_covariance(nHB)  
+            xa, xa_error = self._build_prior_state_and_covariance(nHB)
 
             if self.inverse_method == "analytical":
                 # Perform analytical inversion to get posterior flux estimates and uncertainties
-                xhat, ak, shat = analytical_inversion(H_concat.data, Y_concat, YError_concat**2, xa, xa_error)
+                xhat, ak, shat = analytical_inversion(H_concat.data, Y_concat, R, xa, xa_error)
 
             else:
                 # ETKF expects a full observation covariance matrix.
@@ -259,7 +260,7 @@ class InversionSetupRun:
                 etkf_random_seed = self.inverse_kwargs.get("random_seed", 42)
                 # Keep the same R convention used by analytical_inversion in this workflow:
                 # YError_concat / 20 is interpreted as diagonal variances.
-                R_etkf = np.diag(YError_concat)
+                R_etkf = np.diag(R)
 
                 xhat, shat = ETKF_inversion(
                     H_concat.data,
