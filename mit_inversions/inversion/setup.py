@@ -248,7 +248,7 @@ class InversionSetupRun:
 
             if self.inverse_method == "analytical":
                 # Perform analytical inversion to get posterior flux estimates and uncertainties
-                xhat, ak, shat = analytical_inversion(H_concat.data, Y_concat, YError_concat, xa, xa_error)
+                xhat, ak, shat = analytical_inversion(H_concat.data, Y_concat, YError_concat**2, xa, xa_error)
 
             else:
                 # ETKF expects a full observation covariance matrix.
