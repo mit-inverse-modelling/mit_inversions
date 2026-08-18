@@ -241,6 +241,7 @@ class InversionSetupRun:
         nHB = H_bc_concat.shape[1]
         bc_data_indicator = np.array(bc_data_indicator, dtype=int)
 
+        YError_cov = np.diag(YError_concat ** 2)
         if self.inverse_method in ["analytical", "etkf"]:
 
             # xa is the prior mean state and xa_error is the prior covariance (P).
@@ -248,7 +249,7 @@ class InversionSetupRun:
 
             if self.inverse_method == "analytical":
                 # Perform analytical inversion to get posterior flux estimates and uncertainties
-                xhat, ak, shat = analytical_inversion(H_concat.data, Y_concat, YError_concat, xa, xa_error)
+                xhat, ak, shat = analytical_inversion(H_concat.data, Y_concat, YError_cov, xa, xa_error)
 
             else:
                 # ETKF expects a full observation covariance matrix.
