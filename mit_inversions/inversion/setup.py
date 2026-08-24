@@ -214,7 +214,7 @@ class InversionSetupRun:
 
             t = self.fp_sens_dict_out[site]['time'].values
             y = self.fp_sens_dict_out[site]['mf'].values
-            y_err = np.sqrt(self.fp_sens_dict_out[site]['mf_variability'].values ** 2 + self.fp_sens_dict_out[site]['mf_repeatability'].values ** 2 + self.fp_sens_dict_out[site]['mf_model_error'].values ** 2)
+            y_err = np.sqrt(self.fp_sens_dict_out[site]['mf_variability'].values ** 2 + self.fp_sens_dict_out[site]['mf_repeatability'].values ** 2 + self.fp_sens_dict_out[site]['mf_model_error'].values ** 2) **2
 
             site_indicator.extend([i] * len(t))
             obs_site_names.extend([site] * len(t))
