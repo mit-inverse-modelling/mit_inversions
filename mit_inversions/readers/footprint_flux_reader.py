@@ -424,7 +424,6 @@ class FootprintFlux():
         else:
             return self._standardize_flux_dataset(flux_loaded, self.flux["variable"])
 
-
     def regrid_flux_to_footprint(self, 
                                  flux_data, 
                                  footprint_data, 

@@ -1,23 +1,32 @@
-import numpy as np
+# inversion.py
+# Created: 10 April 2026
+# Authors: Eric Saboya, Minde An, Luke Western
+# Copyright (c) 2026. All rights reserved.
+# License: MIT License
+# 
+# Description:
+#  This module contains the different inverse methods that can be used in ARTEMIS
+
 import warnings
-from scipy.stats import truncnorm
+import numpy as np
 import pymc as pm
 import arviz as az
-
+from scipy.stats import truncnorm
     
 
-def analytical_inversion(H, y, R, xa, P):
+def analytical_inversion(K, y, So, xa, Sa):
     '''
-    Define analytical inversion function
+    Define analytical inversion function using the notation from
+    Jacob et al.
     
     Parameters:
     -----------
-    H: Sensitivity matrix (Jacobian matrix) - shape (m, n)
+    K: Sensitivity matrix (Jacobian matrix) - shape (m, n)
     y: Observations - shape (m,) or (m, 1)
-    R: Observation error covariance matrix - shape (m, m),
+    So: Observation error covariance matrix - shape (m, m),
        or the diagonal variances with shape (m,)
     xa: Prior estimates - shape (n,) or (n, 1)
-    P: Prior error covariance matrix - shape (n, n),
+    Sa: Prior error covariance matrix - shape (n, n),
        or the diagonal variances with shape (n,)
     
     Returns:
@@ -33,24 +42,23 @@ def analytical_inversion(H, y, R, xa, P):
     numpy.linalg.LinAlgError: If matrix inversion fails
     
     -------
-    The analytical inversion only supports Gaussian Distribution.
-    The xa are the mean values of the prior.
-    The P is the covariance matrix of the prior.
-    
+    The analytical inversion only supports Gaussian distributions.
+    xa is the mean of the prior.
+    Sa is the prior covariance matrix.
     '''
     
     # Convert to numpy arrays
     try:
-        H = np.asarray(H, dtype=float)
+        K = np.asarray(K, dtype=float)
         y = np.asarray(y, dtype=float)
-        R = np.asarray(R, dtype=float)
+        So = np.asarray(So, dtype=float)
         xa = np.asarray(xa, dtype=float)
-        P = np.asarray(P, dtype=float)
+        Sa = np.asarray(Sa, dtype=float)
     except (ValueError, TypeError) as e:
         raise TypeError(f"Failed to convert inputs to numpy arrays: {str(e)}")
     
     # Check for NaN or Inf values
-    inputs = {'H': H, 'y': y, 'R': R, 'xa': xa, 'P': P}
+    inputs = {'K': K, 'y': y, 'So': So, 'xa': xa, 'Sa': Sa}
     for name, value in inputs.items():
         if np.any(np.isnan(value)):
             raise ValueError(f"{name} contains NaN values")
@@ -58,10 +66,10 @@ def analytical_inversion(H, y, R, xa, P):
             raise ValueError(f"{name} contains Inf values")
     
     # Ensure proper dimensions
-    if H.ndim != 2:
-        raise ValueError(f"H must be 2-dimensional, got {H.ndim} dimensions")
+    if K.ndim != 2:
+        raise ValueError(f"K must be 2-dimensional, got {K.ndim} dimensions")
     
-    m, n = H.shape
+    m, n = K.shape
     
     # Reshape y and xa if needed
     if y.ndim == 1:
@@ -76,116 +84,144 @@ def analytical_inversion(H, y, R, xa, P):
     
     # Dimension consistency checks
     if y.shape[0] != m:
-        raise ValueError(f"y dimension {y.shape[0]} does not match H rows {m}")
+        raise ValueError(f"y dimension {y.shape[0]} does not match K rows {m}")
     
     if xa.shape[0] != n:
-        raise ValueError(f"xa dimension {xa.shape[0]} does not match H columns {n}")
+        raise ValueError(f"xa dimension {xa.shape[0]} does not match K columns {n}")
     
-    # Interpret R either as a full covariance matrix or as diagonal variances.
-    if R.ndim == 1:
-        if R.shape[0] != m:
-            raise ValueError(f"Diagonal R must have length {m}, got {R.shape[0]}")
+    # Interpret So either as a full covariance matrix or as diagonal variances.
+    if So.ndim == 1:
+        if So.shape[0] != m:
+            raise ValueError(f"Diagonal So must have length {m}, got {So.shape[0]}")
         warnings.warn(
-            "R was provided as a 1D array; interpreting it as diagonal variances.",
+            "So was provided as a 1D array; interpreting it as diagonal variances.",
             stacklevel=2,
         )
-        r_diag = R
-        R_full = None
-    elif R.ndim == 2:
-        if R.shape != (m, m):
-            raise ValueError(f"R must be ({m}, {m}), got {R.shape}")
-        if not np.allclose(R, R.T):
-            raise ValueError("R must be symmetric")
-        diag_R = np.diag(R)
-        if np.allclose(R, np.diag(diag_R)):
-            r_diag = diag_R
-            R_full = None
+        so_diag = So
+        So_full = None
+    elif So.ndim == 2:
+        if So.shape != (m, m):
+            raise ValueError(f"So must be ({m}, {m}), got {So.shape}")
+        if not np.allclose(So, So.T):
+            raise ValueError("So must be symmetric")
+        diag_So = np.diag(So)
+        if np.allclose(So, np.diag(diag_So)):
+            so_diag = diag_So
+            So_full = None
         else:
-            r_diag = None
-            R_full = R
+            so_diag = None
+            So_full = So
     else:
-        raise ValueError(f"R must be 1D or 2D, got {R.ndim} dimensions")
+        raise ValueError(f"So must be 1D or 2D, got {So.ndim} dimensions")
 
-    # Interpret P either as a full covariance matrix or as diagonal variances.
-    if P.ndim == 1:
-        if P.shape[0] != n:
-            raise ValueError(f"Diagonal P must have length {n}, got {P.shape[0]}")
+    # Interpret Sa either as a full covariance matrix or as diagonal variances.
+    if Sa.ndim == 1:
+        if Sa.shape[0] != n:
+            raise ValueError(f"Diagonal Sa must have length {n}, got {Sa.shape[0]}")
         warnings.warn(
-            "P was provided as a 1D array; interpreting it as diagonal variances.",
+            "Sa was provided as a 1D array; interpreting it as diagonal variances.",
             stacklevel=2,
         )
-        p_diag = P
-        P = np.diag(P)
-    elif P.ndim == 2:
-        if P.shape != (n, n):
-            raise ValueError(f"P must be ({n}, {n}), got {P.shape}")
-        p_diag = np.diag(P) if np.allclose(P, np.diag(np.diag(P))) else None
+        sa_diag = Sa
+        Sa_full = None
+    elif Sa.ndim == 2:
+        if Sa.shape != (n, n):
+            raise ValueError(f"Sa must be ({n}, {n}), got {Sa.shape}")
+        if not np.allclose(Sa, Sa.T):
+            raise ValueError("Sa must be symmetric")
+        diag_Sa = np.diag(Sa)
+        if np.allclose(Sa, np.diag(diag_Sa)):
+            sa_diag = diag_Sa
+            Sa_full = None
+        else:
+            sa_diag = None
+            Sa_full = Sa
     else:
-        raise ValueError(f"P must be 1D or 2D, got {P.ndim} dimensions")
+        raise ValueError(f"Sa must be 1D or 2D, got {Sa.ndim} dimensions")
 
-    # Check if P is square and symmetric
-    if not np.allclose(P, P.T):
-        raise ValueError("P must be symmetric")
+    # Interpret Sa either as a full covariance matrix or as diagonal variances.
+    if Sa.ndim == 1:
+        if Sa.shape[0] != n:
+            raise ValueError(f"Diagonal Sa must have length {n}, got {Sa.shape[0]}")
+        warnings.warn(
+            "Sa was provided as a 1D array; interpreting it as diagonal variances.",
+            stacklevel=2,
+        )
+        sa_diag = Sa
+        Sa = np.diag(Sa)
+    elif Sa.ndim == 2:
+        if Sa.shape != (n, n):
+            raise ValueError(f"Sa must be ({n}, {n}), got {Sa.shape}")
+        sa_diag = np.diag(Sa) if np.allclose(Sa, np.diag(np.diag(Sa))) else None
+    else:
+        raise ValueError(f"Sa must be 1D or 2D, got {Sa.ndim} dimensions")
+
+    # Check if Sa is square and symmetric
+    if not np.allclose(Sa, Sa.T):
+        raise ValueError("Sa must be symmetric")
     
-    # Check if R and P are positive definite
-    if r_diag is not None:
-        if np.any(r_diag <= 0):
-            raise ValueError(f"R is not positive definite. Minimum diagonal entry: {r_diag.min()}")
+    # Check if So and Sa are positive definite
+    if so_diag is not None:
+        if np.any(so_diag <= 0):
+            raise ValueError(f"So is not positive definite. Minimum diagonal entry: {so_diag.min()}")
     else:
         try:
-            np.linalg.cholesky(R_full)
+            np.linalg.cholesky(So_full)
         except np.linalg.LinAlgError as e:
-            raise ValueError(f"R is not positive definite: {str(e)}")
+            raise ValueError(f"So is not positive definite: {str(e)}")
     
     try:
-        np.linalg.cholesky(P)
+        np.linalg.cholesky(Sa)
     except np.linalg.LinAlgError as e:
-        raise ValueError(f"P is not positive definite: {str(e)}")
+        raise ValueError(f"Sa is not positive definite: {str(e)}")
 
-    resid = y - H @ xa
+    resid = y - K @ xa
 
     # Choose the cheaper solve direction based on matrix structure and size.
     use_state_space = (n <= m)
     try:
-        if p_diag is not None:
-            if np.any(p_diag <= 0):
-                raise ValueError(f"P is not positive definite. Minimum diagonal entry: {p_diag.min()}")
-            inv_P = np.diag(1.0 / p_diag)
+        if sa_diag is not None:
+            if np.any(sa_diag < 0):
+                raise ValueError(f"Sa is not positive definite. Minimum diagonal entry: {sa_diag.min()}")
+            inv_sa = np.nan_to_num(np.diag(1.0 / sa_diag))
         else:
-            inv_P = np.linalg.inv(P)
+            inv_sa = np.nan_to_num(np.linalg.inv(Sa))
     except np.linalg.LinAlgError as e:
-        raise np.linalg.LinAlgError(f"Failed to invert P: {str(e)}")
+        raise np.linalg.LinAlgError(f"Failed to invert Sa: {str(e)}")
 
     try:
-        if r_diag is not None and use_state_space:
-            inv_r = 1.0 / r_diag
-            weighted_H = H * inv_r[:, None]
-            system = H.T @ weighted_H + inv_P
+        if so_diag is not None and use_state_space:
+            inv_so = 1.0 / so_diag
+            weighted_K = K * inv_so[:, None]
+            system = K.T @ weighted_K + inv_sa
             shat = np.linalg.inv(system)
-            xhat = xa + shat @ (H.T @ (inv_r[:, None] * resid))
-            ak = shat @ (H.T @ weighted_H)
-        elif r_diag is not None:
-            PHt = P @ H.T
-            HPHt_R = H @ PHt
-            HPHt_R[np.diag_indices_from(HPHt_R)] += r_diag
-            G = PHt @ np.linalg.inv(HPHt_R)
+            xhat = xa + shat @ (K.T @ (inv_so[:, None] * resid))
+            ak = shat @ (K.T @ weighted_K)
+
+        elif so_diag is not None:
+            SaKt = Sa @ K.T
+            KSaKt_So = K @ SaKt + np.diag(so_diag)
+            G = SaKt @ np.linalg.inv(KSaKt_So)
             xhat = xa + G @ resid
-            weighted_H = H * (1.0 / r_diag)[:, None]
-            shat = np.linalg.inv(H.T @ weighted_H + inv_P)
-            ak = G @ H
+            weighted_K = K * (1.0 / so_diag)[:, None]
+            shat = np.linalg.inv(K.T @ weighted_K + inv_sa)
+            ak = G @ K
+
         elif use_state_space:
-            solve_R_H = np.linalg.solve(R_full, H)
-            system = H.T @ solve_R_H + inv_P
+            solve_R_H = np.linalg.solve(So_full, K)
+            system = K.T @ solve_R_H + inv_sa
             shat = np.linalg.inv(system)
-            xhat = xa + shat @ (H.T @ np.linalg.solve(R_full, resid))
-            ak = shat @ (H.T @ solve_R_H)
+            xhat = xa + shat @ (K.T @ np.linalg.solve(So_full, resid))
+            ak = shat @ (K.T @ solve_R_H)
+
         else:
-            PHt = P @ H.T
-            HPHt_R = H @ PHt + R_full
-            G = PHt @ np.linalg.inv(HPHt_R)
+            SaKt = Sa @ K.T
+            KSaKt_So = K @ SaKt + So_full
+            G = SaKt @ np.linalg.inv(KSaKt_So)
             xhat = xa + G @ resid
-            shat = np.linalg.inv(H.T @ np.linalg.solve(R_full, H) + inv_P)
-            ak = G @ H
+            shat = np.linalg.inv(K.T @ np.linalg.solve(So_full, K) + inv_sa)
+            ak = G @ K
+
     except np.linalg.LinAlgError as e:
         raise np.linalg.LinAlgError(f"Failed to solve analytical inversion system: {str(e)}")
     except Exception as e:
