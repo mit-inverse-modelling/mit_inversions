@@ -200,7 +200,7 @@ def analytical_inversion(K, y, So, xa, Sa):
 
         elif so_diag is not None:
             SaKt = Sa @ K.T
-            KSaKt_So = K @ SaKt + So_full
+            KSaKt_So = K @ SaKt + np.diag(so_diag)
             G = SaKt @ np.linalg.inv(KSaKt_So)
             xhat = xa + G @ resid
             weighted_K = K * (1.0 / so_diag)[:, None]
