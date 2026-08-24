@@ -47,7 +47,7 @@ def multitracer_inversion(data_dict_inputs: dict,
         model_data_dict=fp_sens_out_gas1,
         bc_dict=gas1_data_dict_bc,
         flux_grid=flux_grid_1,
-        inverse_method=data_dict_inputs["inverse_method"],
+        inverse_method=data_dict_inputs["inversion"]["inverse_method"],
     ).run_multitracer()
      
     # Prepare Gas 2 data for multitracer inversion
@@ -63,7 +63,7 @@ def multitracer_inversion(data_dict_inputs: dict,
     bc_data_indicator2) = InversionSetupRun(model_data_dict=fp_sens_out_gas2,
                                             bc_dict=gas2_data_dict_bc,
                                             flux_grid=flux_grid_2,
-                                            inverse_method=data_dict_inputs['inverse_method'],
+                                            inverse_method=data_dict_inputs['inversion']['inverse_method'],
                                             basis_function_grid=fp_sens_out_gas1['.basis_function_grid']
                                             ).run_multitracer()
 
