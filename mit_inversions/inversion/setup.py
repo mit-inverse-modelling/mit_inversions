@@ -258,9 +258,8 @@ class InversionSetupRun:
                 etkf_dist_type = self.inverse_kwargs.get("dist_type", default_dist_type)
                 etkf_dist_params = self.inverse_kwargs.get("dist_params", None)
                 etkf_random_seed = self.inverse_kwargs.get("random_seed", 42)
-                # Keep the same R convention used by analytical_inversion in this workflow:
-                # YError_concat / 20 is interpreted as diagonal variances.
-                R_etkf = np.diag(YError_concat)
+                # Build observation error covariance matrix from standard deviations.
+                R_etkf = np.diag(YError_concat ** 2)
 
                 xhat, shat = ETKF_inversion(
                     H_concat.data,
