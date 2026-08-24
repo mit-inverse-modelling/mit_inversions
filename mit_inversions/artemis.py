@@ -165,7 +165,7 @@ def artemis_multitracer(data_dict_inputs: dict):
    from mit_inversions.simulations import data_merge
    from mit_inversions.inversion.multitracer import multitracer_inversion
 
-   # Retrieve atmospheric trace gas observations for both species
+   # Retrieve atmospheric trace gas observations for both trace gas species
    y1 = Observations(species=data_dict_inputs['species'],
                      sites=data_dict_inputs['sites'],
                      start_date=data_dict_inputs['start_date'],
