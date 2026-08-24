@@ -17,7 +17,7 @@ from scipy.stats import truncnorm
 def analytical_inversion(K, y, So, xa, Sa):
     '''
     Define analytical inversion function using the notation from
-    Jacobs et al
+    Jacob et al.
     
     Parameters:
     -----------
