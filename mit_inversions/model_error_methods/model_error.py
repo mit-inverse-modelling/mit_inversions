@@ -87,7 +87,7 @@ class ModelError():
 
         c_bg = np.mean(bg_mu)
         delta_obs = obs - c_bg
-        delta_sim = sim.mean(dim="flux_sector")
+        delta_sim = sim.mean(dim="flux_sector") - c_bg
         
         # Mask of where 3-sigma pollution events occur in the array
         # sig3mask = np.where(delta_obs>=np.std(delta_obs)*3)
