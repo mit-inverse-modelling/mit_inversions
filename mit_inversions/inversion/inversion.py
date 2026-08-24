@@ -42,9 +42,9 @@ def analytical_inversion(K, y, So, xa, Sa):
     numpy.linalg.LinAlgError: If matrix inversion fails
     
     -------
-    The analytical inversion only supports Gaussian Distribution.
-    The xa are the mean values of the prior.
-    The P is the covariance matrix of the prior.
+    The analytical inversion only supports Gaussian distributions.
+    xa is the mean of the prior.
+    Sa is the prior covariance matrix.
     '''
     
     # Convert to numpy arrays
