@@ -412,7 +412,7 @@ class InversionSetupRun:
             sig1 = np.nan_to_num(self.fp_sens_dict_out[site]['mf_variability'].values) ** 2
             sig2 = np.nan_to_num(self.fp_sens_dict_out[site]['mf_repeatability'].values) ** 2
             sig3 = np.nan_to_num(self.fp_sens_dict_out[site]['mf_model_error'].values) ** 2
-            y_err = np.sqrt(sig1 + sig2 + sig3) **2
+            y_err = np.sqrt(sig1 + sig2 + sig3)
 
             site_indicator.extend([i] * len(t))
             obs_site_names.extend([site] * len(t))
