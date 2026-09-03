@@ -38,8 +38,9 @@ class ModelError():
 
         expected_methods = [
             "pollution_event_error",
+            "relative_residual_error",
             "simple",
-            'zero',
+            "zero"
         ]
 
         if model_error_method in expected_methods:
@@ -103,6 +104,22 @@ class ModelError():
         model_error = np.sqrt((r * delta_sim)**2 + sigma_bg**2)
 
         return model_error
+    
+    def relative_residual_error(self, obs, sim):
+        """
+        Calculate the relative residual error of Palmer et al. (2003), doi:10.1029/2004JD005185
+
+        Parameters:
+        - obs (xarray.DataArray):
+            Observed concentrations.
+        - sim (xarray.DataArray):
+            Simulated concentrations from the model.
+        """
+        bg = np.nanpercentile(obs.values, 10)
+        b = np.nanmean(sim.sum(dim="flux_sector").values - (obs.values - bg))
+        eps = sim.sum(dim="flux_sector").values - (obs.values - bg) - b
+        rrsd = np.nanstd(eps) / np.nanmean(obs.values)
+        return (rrsd * obs.values) # return as observational error std. dev., later converted to variance.
     
     def simple_model_error(self, obs, sim):
         """
