@@ -15,7 +15,7 @@
 #   time series, and then runs the multitracer inversion using a block matrix approach
 #   to calculate the posterior estimates and uncertainties for the fluxes and boundary
 #   conditions for both gases. The output is a dictionary containing the results.
-
+import sys
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -66,11 +66,7 @@ def multitracer_inversion(data_dict_inputs: dict,
                                             inverse_method=data_dict_inputs['inverse_method'],
                                             basis_function_grid=fp_sens_out_gas1['.basis_function_grid']
                                             ).run_multitracer()
-
-    # Create standard time array for both gases (assuming same time range and frequency)
-    t_standard = pd.date_range(start=data_dict_inputs['start_date'], end=data_dict_inputs['end_date'], freq="1H")
-    t_standard_xr = xr.DataArray(t_standard, dims=["time"], coords={"time": t_standard})
-    
+   
     # Create xarray datasets for each gas
     # Gas 1
     g1_vars = {
@@ -89,6 +85,8 @@ def multitracer_inversion(data_dict_inputs: dict,
         "regionBC": (["regionBC"], np.array(["0", "1", "2", "3"] * int(H_bc_concat.shape[1]/4))),
     }
     g1_ds = xr.Dataset(data_vars=g1_vars, coords=g1_coords)
+    mask = g1_ds["Y"].notnull() & g1_ds["R"].notnull()
+    g1 = g1_ds.sel(time=mask)
 
     # Gas 2
     g2_vars = {
@@ -104,106 +102,108 @@ def multitracer_inversion(data_dict_inputs: dict,
         "regionBC": (["regionBC"], np.array(["0", "1", "2", "3"] * int(G_bc_concat.shape[1]/4))),
     }
     g2_ds = xr.Dataset(data_vars=g2_vars, coords=g2_coords)
+    mask = g2_ds["Y"].notnull() & g2_ds["R"].notnull()
+    g2 = g2_ds.sel(time=mask)
 
-    t1 = g1_ds["time"].values
-    t2 = g2_ds["time"].values
-    idx = np.searchsorted(t2, t1)
-    idx = np.clip(idx, 0, len(t2) - 1)
-    idx_prev = np.clip(idx-1, 0, len(t2) - 1)
-    diff_next = np.abs(t2[idx] - t1)
-    diff_prev = np.abs(t2[idx_prev] - t1)
-    best_idx = np.where(diff_prev < diff_next, idx_prev, idx)
-
-    # Keep only matches within tolerance
-    tol = np.timedelta64(1, "h")
-    times_to_keep = np.abs(t2[best_idx] - t1) <= tol
-
-    i1 = np.nonzero(times_to_keep)[0]
-    i2 = best_idx[times_to_keep]
-
-    g1_ds_clean = g1_ds.isel(time=i1)
-    g2_ds_clean = g2_ds.isel(time=i2)
-
-    # Remove instances of NaNs from individual arrays
-    # g1_ds = xr.Dataset(data_vars=g1_vars, coords=g1_coords)
-    # mask = g1_ds["Y"].notnull()
-    # g1_clean = g1_ds.sel(time=mask) 
-
-    # g2_ds = xr.Dataset(data_vars=g2_vars, coords=g2_coords)
-    # mask = g2_ds["Y"].notnull()
-    # g2_clean = g2_ds.sel(time=mask)
-
-    # # Reindex the datasets to the standard time array
-    # g1_ri = g1_clean.reindex_like(t_standard_xr, method="nearest", tolerance=np.timedelta64(1, "h"))
-    # g2_ri = g2_clean.reindex_like(t_standard_xr, method="nearest", tolerance=np.timedelta64(1, "h"))
-    # g2_ri_g1 = g2_ri.reindex(time=g1_ri.time, method="nearest", tolerance=np.timedelta64(1, "h"))
-
+    common_time = pd.date_range(start=data_dict_inputs['start_date'], 
+                                end=data_dict_inputs['end_date'], 
+                                freq="h")[0:-1] 
+    
+    g1_hourly = g1.reindex(time=common_time, method='nearest', tolerance=pd.Timedelta('0.4h'))
+    g2_hourly = g2.reindex(time=common_time, method='nearest', tolerance=pd.Timedelta('0.4h'))
+    tmask = g1_hourly["Y"].notnull() & g1_hourly["R"].notnull() & g2_hourly["Y"].notnull() & g2_hourly["R"].notnull()
 
     # Extract the relevant data for the multitracer inversion
     # Gas 1
-    Y1 = np.reshape(g1_ds_clean["Y"].values, (1, -1)).T
-    H1 = g1_ds_clean['H1'].values
-    H2 = g1_ds_clean['H2'].values
-    Hbc = g1_ds_clean['Hbc'].values
-    Xa1 = np.reshape(g1_ds_clean["xa1"].values, (1, -1)).T
-    Xa2 = np.reshape(g1_ds_clean["xa2"].values, (1, -1)).T
-    XaBC1 = g1_ds_clean["xbc"].values.reshape(-1, 1)
+    Y1 = np.reshape(g1_hourly["Y"].values[tmask], (1, -1)).T
+    H1 = g1_hourly['H1'].values[tmask,:]
+    H2 = g1_hourly['H2'].values[tmask,:]
+    Hbc = g1_hourly['Hbc'].values[tmask,:]
+    Xa1 = np.reshape(g1_hourly["xa1"].values, (1, -1)).T
+    Xa2 = np.reshape(g1_hourly["xa2"].values, (1, -1)).T
+    XaBC1 = g1_hourly["xbc"].values.reshape(-1, 1)
     delta_mf_1 = Y1 - (H1 @ Xa1) - (H2 @ Xa2) - (Hbc @ XaBC1)
 
+    # Get dimensions
+    m = H1.shape[0]
+    n = H1.shape[1]
+
     # Gas 2
-    Y2 = np.reshape(g2_ds_clean["Y"].values, (1, -1)).T
-    G = g2_ds_clean['G1'].values
-    Gbc = g2_ds_clean['Gbc'].values
-    XaBC2 = g2_ds_clean["xbc2"].values.reshape(-1, 1)
-    A_alpha = data_dict_inputs['alpha']
-    Sa = data_dict_inputs['Sa']
-    delta_mf_2 = Y2 - (G @ Xa1) * A_alpha - (Gbc @ XaBC2)
+    Y2 = np.reshape(g2_hourly["Y"].values[tmask], (1, -1)).T
+    G = g2_hourly['G1'].values[tmask,:]
+    Gbc = g2_hourly['Gbc'].values[tmask,:]
+    XaBC2 = g2_hourly["xbc2"].values.reshape(-1, 1)
+
+    # Emissions ratio (alpha) and its uncertainty (Sa) for the multitracer inversion
+    load_alpha = data_dict_inputs['alpha']
+    if load_alpha is None:
+        load_alpha = 1.0
+        print("Alpha not provided. Using default value of 1.0.")
+    elif load_alpha < 0.0:
+        raise ValueError("Alpha must be a non-negative value.")
+    
+    if type(load_alpha) in [int, float]:
+        A_alpha = np.diag([load_alpha]*n)
+    elif isinstance(load_alpha, np.ndarray):
+        if load_alpha.ndim == 1 and load_alpha.size == n:
+            A_alpha = np.diag(load_alpha)
+        elif load_alpha.ndim == 2 and load_alpha.shape == (n, n):
+            A_alpha = load_alpha
+        else:
+            raise ValueError("Alpha must be a scalar, a 1D array of length n, or a 2D array of shape (n, n).")
+
+    load_Sa = data_dict_inputs['Sa']
+    if load_Sa is None:
+        load_Sa = 1.0
+        print("Sa not provided. Using default value of 1.0.")
+    elif load_Sa < 0.0:
+        raise ValueError("Sa must be a non-negative value.")
+
+    if type(load_Sa) in [int, float]:
+        Sa = np.diag([load_Sa]*n)
+    elif isinstance(load_Sa, np.ndarray):
+        if load_Sa.ndim == 1 and load_Sa.size == n:
+            Sa = np.diag(load_Sa)
+        elif load_Sa.ndim == 2 and load_Sa.shape == (n, n):
+            Sa = load_Sa
+        else:
+            raise ValueError("Sa must be a scalar, a 1D array of length n, or a 2D array of shape (n, n).")
+    Sa_cov = Sa
+    delta_mf_2 = Y2 - (G @ A_alpha @ Xa1) - (Gbc @ XaBC2)
+
 
     # Prior uncertainty block matrix B terms (assumed to be diagonal):
-    #   B11: Uncertainty on gas 1, sector 1 emissions
-    #   B22: Uncertainty on gas 1, sector 2 emissions
-    #   Bbc1: Uncertainty on gas 1, boundary conditions
-    #   Bbc2: Uncertainty on gas 2, boundary conditions
-    B11 = np.diag((data_dict_inputs['xa1_sigma'] * Xa1.flatten()) ** 2) + np.nanpercentile(Xa1.flatten(), 5) * np.eye(len(Xa1.flatten()))
-    B22 = np.diag((data_dict_inputs['xa2_sigma'] * Xa2.flatten()) ** 2) + np.nanpercentile(Xa2.flatten(), 5) * np.eye(len(Xa2.flatten()))
+    #     [B11  0   0    0]
+    # B = [ 0   B22 0    0]
+    #     [ 0   0   Bbc1 0]
+    #     [ 0   0   0    Bbc2]
+    #  B11: A priori uncertainty on gas 1, sector 1 emissions
+    #  B22: A priori uncertainty on gas 1, sector 2 emissions
+    #  Bbc1: A priori uncertainty on gas 1, boundary conditions
+    #  Bbc2: A priori uncertainty on gas 2, boundary conditions
+    B11 = np.diag((data_dict_inputs['xa1_sigma'] * Xa1.flatten()) ** 2) 
+    B22 = np.diag((data_dict_inputs['xa2_sigma'] * Xa2.flatten()) ** 2)
     Bbc1 = np.diag((data_dict_inputs['xbc1_sigma'] * XaBC1.flatten()) ** 2)
     Bbc2 = np.diag((data_dict_inputs['xbc2_sigma'] * XaBC2.flatten()) ** 2)
 
     # Model-data uncertainty block matrix R terms (assumed to be diagonal):
     #   R1: Uncertainty on gas 1 observations
     #   R2: Uncertainty on gas 2 observations
-    R1 = np.diag(g1_ds_clean["R"].values.flatten() ** 2)
-    R2 = np.diag(g2_ds_clean["R"].values.flatten() ** 2) + H1 @ np.diag((Sa * np.ones_like(Xa1.flatten()))) @ H1.T
+    #   R2_tilde: Uncertainty on gas 2 observations, plus the uncertainty from the emissions ratio (alpha) and its uncertainty (Sa)
+    R1 = np.diag(g1_hourly["R"].values[tmask].flatten() ** 2)
+    R2_tilde = np.diag(g2_hourly["R"].values[tmask].flatten() ** 2) + (H1 @ Sa_cov @ Xa1 @ Xa1.T @ Sa_cov.T @ H1.T)
 
-    print("t1", len(g1_ds_clean['time']))
-    print("t2", len(g2_ds_clean['time']))
-    print("Y1", np.max(Y1))
-    print("Y2", np.max(Y2))
-    print("H1", np.max(H1))
-    print("H2", np.max(H2))
-    print("Hbc", np.max(Hbc))
-    print("G", np.max(G))
-    print("Gbc", np.max(Gbc))
-    print("R1", np.max(R1))
-    print("R2", np.max(R2))
-    print("B11", np.max(B11))
-    print("B22", np.max(B22))
-    print("Bbc1", np.max(Bbc1))
-    print("Bbc2", np.max(Bbc2))
-    print("A_alpha", np.max(A_alpha))
-    print("Sa", np.max(Sa))
-
-    # Run the multitracer inversion
     print("Running multitracer inversion ...")
     # We define the 2x2 block matrix S as S = KBK.T + R
-    # Matrix S has elements S11, S12, S21, S22 where:
+    # S = [S11  S12]
+    #     [S21  S22]
     S11 = (H1 @ B11 @ H1.T) + (H2 @ B22 @ H2.T) + (Hbc @ Bbc1 @ Hbc.T) + R1
-    S12 = (H1 @ B11 @ G.T) * A_alpha
-    S21 = (G @ B11 @ H1.T) * A_alpha
-    S22 = (G @ B11 @ G.T) * (A_alpha ** 2) + (Gbc @ Bbc2 @ Gbc.T) + R2
+    S12 = H1 @ B11 @ A_alpha.T @ G.T
+    S21 = G @ A_alpha @ B11 @ H1.T
+    S22 = (G @ A_alpha @ B11 @ A_alpha.T @ G.T) + (Gbc @ Bbc2 @ Gbc.T) + R2_tilde
 
     # Construct the inverse block matrix of S (Sinv)
-    #   Define the Schur complement, M, of S
+    #   Define the Schur complement, M, of S (block S22)
     M = S11 -  S12 @ np.linalg.inv(S22) @ S21
     Sinv11 = np.linalg.inv(M)
     Sinv12 = - np.linalg.inv(M) @ S12 @ np.linalg.inv(S22)
@@ -211,44 +211,32 @@ def multitracer_inversion(data_dict_inputs: dict,
     Sinv22 = np.linalg.inv(S22) + np.linalg.inv(S22) @ S21 @ np.linalg.inv(M) @ S12 @ np.linalg.inv(S22)
 
     # Calculate the posterior estimates for the fluxes and boundary conditions for both gases
-    x1_post = Xa1 + (B11 @ H1.T @ (Sinv11 @ delta_mf_1 + Sinv12 @ delta_mf_2)) + (B11 @ G.T @ (Sinv11 @ delta_mf_1 + Sinv12 @ delta_mf_2))* A_alpha
+    x1_post = Xa1 + (B11 @ H1.T @ (Sinv11 @ delta_mf_1 + Sinv12 @ delta_mf_2)) + (B11 @ A_alpha.T @ G.T @ (Sinv21 @ delta_mf_1 + Sinv22 @ delta_mf_2))
     x2_post = Xa2 + (B22 @ H2.T @ (Sinv11 @ delta_mf_1 + Sinv12 @ delta_mf_2))
     x1_bc_post = XaBC1 + (Bbc1 @ Hbc.T @ (Sinv11 @ delta_mf_1 + Sinv12 @ delta_mf_2))
     x2_bc_post = XaBC2 + (Bbc2 @ Gbc.T @ (Sinv21 @ delta_mf_1 + Sinv22 @ delta_mf_2))
 
-
     # Calculate the posterior uncertainty for the fluxes and boundary conditions for both gases
     # Block matrix lambda is a 4x4 block matrix 
-    # Last checked by ES on 2026-06-26
-    lambda11 = (H1.T @ np.linalg.inv(R1) @ H1) + G.T @ np.linalg.inv(R2) @ G * (A_alpha ** 2) + np.linalg.inv(B11)
-    lambda12 = (H1.T @ np.linalg.inv(R1) @ H2)
-    lambda13 = (H1.T @ np.linalg.inv(R1) @ Hbc)
-    lambda14 = (G.T @ np.linalg.inv(R2) @ Gbc) * A_alpha
+    # NB. Not including the covariances between fluxes and BCs
+    lambda11 = B11 - B11 @ H1.T @ (Sinv11 @ H1 @ B11 + Sinv12 @ G @ A_alpha @ B11)
+    lambda12 = - B11 @ H1.T @ (Sinv11 @ H2 @ B22) - B11 @ A_alpha.T @ G.T @ (Sinv21 @ H2 @ B22)
 
-    lambda21 = (H2.T @ np.linalg.inv(R1) @ H1)
-    lambda22 = (H2.T @ np.linalg.inv(R1) @ H2) + np.linalg.inv(B22)
-    lambda23 = (H2.T @ np.linalg.inv(R1) @ Hbc)
-    lambda24 = np.zeros_like(lambda14)
+    lambda21 = - B22 @ H2.T @ (Sinv11 @ H1 @ B11 + Sinv12 @ G @ A_alpha @ B11)
+    lambda22 = B22 - B22 @ H2.T @ (Sinv11 @ H2 @ B22)
 
-    lambda31 = (Hbc.T @ np.linalg.inv(R1) @ H1)
-    lambda32 = (Hbc.T @ np.linalg.inv(R1) @ H2)
-    lambda33 = (Hbc.T @ np.linalg.inv(R1) @ Hbc) + np.linalg.inv(Bbc1)
-    lambda34 = np.zeros_like(lambda33)
+    lambda33 = - Bbc1 @ Hbc.T @ (Sinv11 @ Hbc @ Bbc1)
+    lambda34 = - Bbc1 @ Hbc.T @ (Sinv12 @ Gbc @ Bbc2)
 
-    lambda41 = (Gbc.T @ np.linalg.inv(R2) @ G) * A_alpha
-    lambda42 = np.zeros_like(lambda41)
-    lambda43 = np.zeros_like(lambda33)
-    lambda44 = (Gbc.T @ np.linalg.inv(R2) @ Gbc) + np.linalg.inv(Bbc2)
+    lambda43 = - Bbc2 @ Gbc.T @ (Sinv21 @ Hbc @ Bbc1)
+    lambda44 = Bbc2 - Bbc2 @ Gbc.T @ (Sinv22 @ Gbc @ Bbc2)
 
     # Calculate posterior precision block matrix 
-    emi_block = np.block([[lambda11, lambda12], [lambda21, lambda22]])
-    bc_block = np.block([[lambda33, lambda34], [lambda43, lambda44]])
-
-    emi_posterior_precision = np.linalg.inv(emi_block)
-    bc_posterior_precision = np.linalg.inv(bc_block)
+    emi_post_cov = np.block([[lambda11, lambda12], [lambda21, lambda22]])
+    bc_post_cov = np.block([[lambda33, lambda34], [lambda43, lambda44]])
 
     inversion_results = {
-        "time": g1_ds_clean.time,
+        "time": g1_hourly.time[tmask],
         "Y1": Y1,
         "Y2": Y2,
         "x1_prior": Xa1,
@@ -261,15 +249,16 @@ def multitracer_inversion(data_dict_inputs: dict,
         "G": G,
         "Gbc": Gbc,
         "R1": R1,
-        "R2": R2,
+        "R2": np.diag(g2_hourly["R"].values[tmask].flatten() ** 2),
+        "R2_tilde": R2_tilde,
         "A_alpha": A_alpha,
         "Sa": Sa,
         "x1_post": x1_post,
         "x2_post": x2_post,
         "x1_bc_post": x1_bc_post,
         "x2_bc_post": x2_bc_post,
-        "emi_posterior_precision": emi_posterior_precision,
-        "bc_posterior_precision": bc_posterior_precision,
+        "emi_post_cov": emi_post_cov,
+        "bc_post_cov": bc_post_cov,
     }
 
     return inversion_results
