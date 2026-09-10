@@ -162,6 +162,8 @@ class ModelError():
             # Calculate model error
             if self.model_method == "pollution_event_error":
                 model_error = self.pollution_event_minmodel_error(obs, sim)
+            elif self.model_method == "relative_residual_error":
+                model_error = self.relative_residual_error(obs, sim)
             elif self.model_method == "simple":
                 model_error = self.simple_model_error(obs, sim)
             elif self.model_method == "zero":
