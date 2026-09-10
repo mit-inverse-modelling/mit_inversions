@@ -20,7 +20,7 @@ from mit_inversions.inversion.setup import InversionSetupRun
 from mit_inversions.sensitivity import inversion_grid_sensitivity
 from mit_inversions.model_error_methods.model_error import ModelError
 from mit_inversions.readers.boundary_conditions import BoundaryConditions
-from mit_inversions.inversion.post_processing import PostProcessingDataOutputs
+from mit_inversions.inversion.post_processing import PostProcessingDataOutputs, PostProcessingMultiTracer
 
 def artemis(data_dict_inputs: dict):
    """
@@ -196,6 +196,10 @@ def artemis_multitracer(data_dict_inputs: dict):
                       base_data_dir=data_dict_inputs['base_data_dir'],
                       ).align_flux_footprint()
 
+   for sector in data_dict_inputs['flux_dict_2'].keys():
+      if data_dict_inputs['flux_dict_2'][sector]['mode'] == 'auto_generation':
+         data_dict_inputs['flux_dict_2'][sector]['total_emissions_Gg'] = data_dict_inputs['flux_dict_1'][sector]['total_emissions_Gg'] * data_dict_inputs['alpha']
+
    (fp_flux_grid_2,
     mf_sim_2,
     flux_grid_2,
@@ -248,4 +252,28 @@ def artemis_multitracer(data_dict_inputs: dict):
                                              flux_grid_1=flux_grid_1,
                                              flux_grid_2=flux_grid_2)
 
-   return inversion_results, flux_grid_1, flux_grid_2, fp_sens_out_gas1, fp_sens_out_gas2
+   # Post-processing of inversion results
+   post_processing_setup = PostProcessingMultiTracer(start_date=data_dict_inputs['start_date'],
+                                                     end_date=data_dict_inputs['end_date'],
+                                                     species=data_dict_inputs['species'],
+                                                     species2=data_dict_inputs['species2'],
+                                                     inversion_results=inversion_results,
+                                                     fp_sens_dict_out=fp_sens_out_gas1,
+                                                     fp_sens_dict_out2=fp_sens_out_gas2,
+                                                     flux_grid_prior=flux_grid_1,
+                                                     flux_grid_prior2=flux_grid_2,
+                                                     atmospheric_transport_model=data_dict_inputs['footprints']['lpdm'],
+                                                     inverse_method=data_dict_inputs['inverse_method'],
+                                                     output_dir=data_dict_inputs.get('output_dir', None),
+                                                     outputname_id=data_dict_inputs.get('outputname_id', None),
+)
+
+   print("Computing mole fractions and country emissions...")
+   mf_out = post_processing_setup.compute_molefractions()
+
+   (g1_flux_out, 
+    g2_flux_out, 
+    ds_country_emissions_g1, 
+    ds_country_emissions_g2) = post_processing_setup.compute_country_emissions()
+   
+   print("Inversion and post-processing complete. Results saved to output directory.")
