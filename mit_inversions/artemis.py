@@ -263,7 +263,7 @@ def artemis_multitracer(data_dict_inputs: dict):
                                                      flux_grid_prior=flux_grid_1,
                                                      flux_grid_prior2=flux_grid_2,
                                                      atmospheric_transport_model=data_dict_inputs['footprints']['lpdm'],
-                                                     inverse_method=data_dict_inputs['inverse_method'],
+                                                     inverse_method=data_dict_inputs['inversion']['inverse_method'],
                                                      output_dir=data_dict_inputs.get('output_dir', None),
                                                      outputname_id=data_dict_inputs.get('outputname_id', None),
 )
