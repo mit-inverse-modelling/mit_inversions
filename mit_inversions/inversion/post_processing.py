@@ -919,7 +919,7 @@ class PostProcessingMultiTracer:
             "mf_post": (["index"], mf_g1_post.flatten()),
             "mf_post_68": (["index"], np.sqrt(mf_g1_post_err.flatten())),
             "mf_postBC": (["index"], mf_g1_postBC.flatten()),
-            "mf_postBC_68": (["index"], mf_g1_postBC_err.flatten()),
+            "mf_postBC_68": (["index"], np.sqrt(mf_g1_postBC_err.flatten())),
         }, coords={"index": (["index"], np.arange(len(self.time)))})
 
         ds_species1_out.attrs["title"] = f"ARTEMIS inversion results for {self.species}"
