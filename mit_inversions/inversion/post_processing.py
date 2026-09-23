@@ -955,12 +955,11 @@ class PostProcessingMultiTracer:
             "time": (["index"], self.time),
             "mf": (["index"], mf_g2_obs.flatten()),
             "mf_err": (["index"], mf_g2_obs_err),
-            "mf_prior": (["index"], mf_g2_prior.flatten()),
             "mf_priorBC": (["index"], mf_g2_priorBC.flatten()),
             "mf_post": (["index"], mf_g2_post.flatten()),
             "mf_post_68": (["index"], np.sqrt(mf_g2_post_err.flatten())),
             "mf_postBC": (["index"], mf_g2_postBC.flatten()),
-            "mf_postBC_68": (["index"], mf_g2_postBC_err.flatten()),
+            "mf_postBC_68": (["index"], np.sqrt(mf_g2_postBC_err.flatten())),
         }, coords={"index": (["index"], np.arange(len(self.time)))})
 
         ds_species2_out.attrs["title"] = f"ARTEMIS inversion results for {self.species2}"
