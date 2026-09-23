@@ -277,3 +277,4 @@ def artemis_multitracer(data_dict_inputs: dict):
     ds_country_emissions_g2) = post_processing_setup.compute_country_emissions()
    
    print("Inversion and post-processing complete. Results saved to output directory.")
+   return inversion_results, flux_grid_1, flux_grid_2, fp_sens_out_gas1, fp_sens_out_gas2
