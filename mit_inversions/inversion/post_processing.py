@@ -759,3 +759,551 @@ class PostProcessingDataOutputs:
 
 
         return concentrations(), fluxes()
+
+
+
+class PostProcessingMultiTracer:
+    """
+    A class for post-processing multi-tracer inversion results.
+    """
+    def __init__(self, 
+                 start_date: str,
+                 end_date: str,
+                 species: str,
+                 species2: str,
+                 inversion_results: dict,
+                 fp_sens_dict_out: dict,
+                 fp_sens_dict_out2: dict,
+                 flux_grid_prior: xr.Dataset,
+                 flux_grid_prior2: xr.Dataset,
+                 atmospheric_transport_model: str,
+                 inverse_method: str,
+                 output_dir: str | None = None,
+                 outputname_id: str | None = None,
+                 ):
+        """
+        Initialize the PostProcessingMultiTracer class with the necessary parameters.
+        Parameters:
+        -----------
+        start_date : str
+            The start date for the analysis period.
+        end_date : str
+            The end date for the analysis period.
+        species : str
+            The first species to be analyzed.
+        species2 : str
+            The second (tracer) species to be analyzed.
+        inversion_results : dict
+            A dictionary containing the inversion results.
+        fp_sens_dict_out : dict
+            A dictionary containing the forward model sensitivities for the first species.
+        fp_sens_dict_out2 : dict
+            A dictionary containing the forward model sensitivities for the second species.
+        flux_grid_prior : xr.Dataset
+            The prior flux grid for the first species.
+        flux_grid_prior2 : xr.Dataset
+            The prior flux grid for the second species.
+        atmospheric_transport_model : str
+            The atmospheric transport model used.
+        inverse_method : str
+            The inversion method used.
+        output_dir : str
+            The directory where output files will be saved.
+        """
+        self.start_date = start_date
+        self.end_date = end_date
+        self.species = species
+        self.species2 = species2
+        self.inversion_results = inversion_results
+        self.fp_sens_dict_out = fp_sens_dict_out
+        self.fp_sens_dict_out2 = fp_sens_dict_out2
+        self.flux_grid_prior = flux_grid_prior
+        self.flux_grid_prior2 = flux_grid_prior2
+        self.atmospheric_transport_model = atmospheric_transport_model
+        self.inverse_method = inverse_method
+        self.output_dir = output_dir
+        self.outputname_id = outputname_id
+
+    def process_data(self):
+        """
+        Process the data for the multi-tracer analysis.
+        """
+        self.time = self.inversion_results['time']['time'].values
+
+        # Observations
+        self.mf_g1 = self.inversion_results['Y1'].flatten()
+        self.mf_err_g1 = np.diagonal(self.inversion_results['R1'])
+        self.mf_g2 = self.inversion_results['Y2'].flatten()
+        self.mf_err_g2 = np.diagonal(self.inversion_results['R2'])
+
+        # Prior sectoral fluxes (gas 1) for each basis function
+        self.xprior_s1 = self.inversion_results['x1_prior']
+        self.xprior_s2 = self.inversion_results['x2_prior']
+        self.xpriorBC_g1 = self.inversion_results['x1_bc_prior']
+        self.xpriorBC_g2 = self.inversion_results['x2_bc_prior']
+
+        # Posterior mean sectoral fluxes (gas 1) for each basis function
+        self.xpost_s1 = self.inversion_results['x1_post']
+        self.xpost_s2 = self.inversion_results['x2_post']
+        self.xpostBC_g1 = self.inversion_results['x1_bc_post']
+        self.xpostBC_g2 = self.inversion_results['x2_bc_post']
+
+        # Sensitivity matrices for each sector
+        self.H_s1_g1 = self.inversion_results['H1']
+        self.H_s2_g1 = self.inversion_results['H2']
+        self.H_s1_g2 = self.inversion_results['G']
+
+        self.nbasis = self.H_s1_g1.shape[1]
+        self.ntime = self.H_s1_g1.shape[0]
+        
+        self.HBC_g1 = self.inversion_results['Hbc']
+        self.HBC_g2 = self.inversion_results['Gbc']
+
+        self.nbasisBC = self.HBC_g1.shape[1]
+
+        # Uncertainties in the posterior fluxes
+        self.emi_post_cov = self.inversion_results['emi_post_cov']
+        self.bc_post_cov = self.inversion_results['bc_post_cov']
+
+        # Emissions ratios
+        self.A_alpha = self.inversion_results['A_alpha']
+        self.Sa_alpha = self.inversion_results['Sa']
+
+    def compute_molefractions(self):
+        """
+        Compute mole fractions for both species using the sensitivity matrices and fluxes.
+        """
+        self.process_data()
+        nbasis = self.nbasis
+        nbasisBC = self.nbasisBC
+
+        # Gas 1
+        mf_g1_obs = self.mf_g1
+        mf_g1_obs_err = self.mf_err_g1
+
+        mf_g1_priorBC = self.HBC_g1 @ self.xpriorBC_g1
+        mf_g1_prior = (self.H_s1_g1 @ self.xprior_s1) + (self.H_s2_g1 @ self.xprior_s2) + mf_g1_priorBC
+
+        mf_g1_postBC = self.HBC_g1 @ self.xpostBC_g1
+        mf_g1_post = (self.H_s1_g1 @ self.xpost_s1) + (self.H_s2_g1 @ self.xpost_s2) + mf_g1_postBC
+
+        emi_s1_std = np.sqrt(np.abs(np.diagonal(self.emi_post_cov[0:nbasis, 0:nbasis]).reshape(-1, 1)))
+        emi_s2_std = np.sqrt(np.abs(np.diagonal(self.emi_post_cov[nbasis:, nbasis:]).reshape(-1, 1)))
+        g1BC_std = np.sqrt(np.abs(np.diagonal(self.bc_post_cov[0:nbasisBC, 0:nbasisBC]).reshape(-1, 1)))
+
+        mf_g1_postBC_err = self.HBC_g1 @ g1BC_std
+        mf_g1_post_err = (self.H_s1_g1 @ emi_s1_std)**2 + (self.H_s2_g1 @ emi_s2_std)**2 + mf_g1_postBC_err **2
+
+
+        # Gas 2
+        mf_g2_obs = self.mf_g2
+        mf_g2_obs_err = self.mf_err_g2
+
+        mf_g2_priorBC = self.HBC_g2 @ self.xpriorBC_g2
+        mf_g2_prior = (self.H_s1_g2 @ self.A_alpha @ self.xprior_s1) + mf_g2_priorBC
+
+        mf_g2_postBC = self.HBC_g2 @ self.xpostBC_g2
+        mf_g2_post = (self.H_s1_g2 @ self.A_alpha @ self.xpost_s1) + mf_g2_postBC
+
+        g2BC_std = np.sqrt(np.diagonal(self.bc_post_cov[nbasisBC:, nbasisBC:]).reshape(-1, 1))
+        mf_g2_postBC_err = self.HBC_g2 @ g2BC_std
+        mf_g2_post_err = (self.H_s1_g2 @ self.A_alpha @ emi_s1_std)**2 + mf_g2_postBC_err **2
+
+        # GAS 1 XARRAY DATASET
+        ds_species1_out = xr.Dataset({
+            "time": (["index"], self.time),
+            "mf": (["index"], mf_g1_obs),
+            "mf_err": (["index"], mf_g1_obs_err),
+            "mf_prior": (["index"], mf_g1_prior.flatten()),
+            "mf_priorBC": (["index"], mf_g1_priorBC.flatten()),
+            "mf_post": (["index"], mf_g1_post.flatten()),
+            "mf_post_68": (["index"], np.sqrt(mf_g1_post_err.flatten())),
+            "mf_postBC": (["index"], mf_g1_postBC.flatten()),
+            "mf_postBC_68": (["index"], mf_g1_postBC_err.flatten()),
+        }, coords={"index": (["index"], np.arange(len(self.time)))})
+
+        ds_species1_out.attrs["title"] = f"ARTEMIS inversion results for {self.species}"
+        ds_species1_out.attrs["institution"] = "Massachusetts Institute of Technology (MIT)"
+        ds_species1_out.attrs["creator"] = "MIT Atmospheric Inverse Modeling Group"
+        ds_species1_out.attrs["creation_date"] = pd.Timestamp.now().isoformat()
+        ds_species1_out.attrs["contact"] = "esaboya@mit.edu"
+        ds_species1_out.attrs["transport_model"] = self.atmospheric_transport_model
+        ds_species1_out.attrs["inversion_system"] = "ARTEMIS"
+        ds_species1_out.attrs["inversion_method"] = self.inverse_method
+        ds_species1_out.attrs["species"] = self.species
+
+        ds_species1_out["mf"].attrs['units'] = 'mol mol-1'
+        ds_species1_out["mf_err"].attrs['units'] = 'mol mol-1'
+        ds_species1_out['mf_prior'].attrs['units'] = 'mol mol-1'
+        ds_species1_out['mf_priorBC'].attrs['units'] = 'mol mol-1'
+        ds_species1_out['mf_post'].attrs['units'] = 'mol mol-1'
+        ds_species1_out['mf_post_68'].attrs['units'] = 'mol mol-1'
+        ds_species1_out['mf_postBC'].attrs['units'] = 'mol mol-1'
+        ds_species1_out['mf_postBC_68'].attrs['units'] = 'mol mol-1'
+
+        ds_species1_out["mf"].attrs['long_name'] = f'Atmospheric measurements of {self.species} mole fraction in dry air'
+        ds_species1_out["mf_err"].attrs['long_name'] = f'Atmospheric measurements uncertainty of {self.species} mole fraction in dry air'
+        ds_species1_out['mf_prior'].attrs['long_name'] = f'Forward simulated atmospheric mole fractions of {self.species}'
+        ds_species1_out['mf_priorBC'].attrs['long_name'] = f'Background simulated atmospheric mole fractions of {self.species}'
+        ds_species1_out['mf_post'].attrs['long_name'] = f'Posterior atmospheric mole fractions of {self.species}'
+        ds_species1_out['mf_post_68'].attrs['long_name'] = f'Posterior 68% confidence interval of {self.species} mole fraction in dry air'
+        ds_species1_out['mf_postBC'].attrs['long_name'] = f'Posterior background atmospheric mole fractions of {self.species}'
+        ds_species1_out['mf_postBC_68'].attrs['long_name'] = f'Posterior background 68% confidence interval of {self.species} mole fraction in dry air'
+
+        # GAS 2 XARRAY DATASET
+        ds_species2_out = xr.Dataset({
+            "time": (["index"], self.time),
+            "mf": (["index"], mf_g2_obs.flatten()),
+            "mf_err": (["index"], mf_g2_obs_err),
+            "mf_priorBC": (["index"], mf_g2_priorBC.flatten()),
+            "mf_post": (["index"], mf_g2_post.flatten()),
+            "mf_post_68": (["index"], np.sqrt(mf_g2_post_err.flatten())),
+            "mf_postBC": (["index"], mf_g2_postBC.flatten()),
+            "mf_postBC_68": (["index"], np.sqrt(mf_g2_postBC_err.flatten())),
+        }, coords={"index": (["index"], np.arange(len(self.time)))})
+
+        ds_species2_out.attrs["title"] = f"ARTEMIS inversion results for {self.species2}"
+        ds_species2_out.attrs["institution"] = "Massachusetts Institute of Technology (MIT)"
+        ds_species2_out.attrs["creator"] = "MIT Atmospheric Inverse Modeling Group"
+        ds_species2_out.attrs["creation_date"] = pd.Timestamp.now().isoformat()
+        ds_species2_out.attrs["contact"] = "esaboya@mit.edu"
+        ds_species2_out.attrs["transport_model"] = self.atmospheric_transport_model
+        ds_species2_out.attrs["inversion_system"] = "ARTEMIS"
+        ds_species2_out.attrs["inversion_method"] = self.inverse_method
+        ds_species2_out.attrs["species"] = self.species2
+
+        ds_species2_out["mf"].attrs['units'] = 'mol mol-1'
+        ds_species2_out["mf_err"].attrs['units'] = 'mol mol-1'
+        ds_species2_out['mf_prior'].attrs['units'] = 'mol mol-1'
+        ds_species2_out['mf_priorBC'].attrs['units'] = 'mol mol-1'
+        ds_species2_out['mf_post'].attrs['units'] = 'mol mol-1'
+        ds_species2_out['mf_post_68'].attrs['units'] = 'mol mol-1'
+        ds_species2_out['mf_postBC'].attrs['units'] = 'mol mol-1'
+        ds_species2_out['mf_postBC_68'].attrs['units'] = 'mol mol-1'
+
+        ds_species2_out["mf"].attrs['long_name'] = f'Atmospheric measurements of {self.species2} mole fraction in dry air'
+        ds_species2_out["mf_err"].attrs['long_name'] = f'Atmospheric measurements uncertainty of {self.species2} mole fraction in dry air'
+        ds_species2_out['mf_prior'].attrs['long_name'] = f'Forward simulated atmospheric mole fractions of {self.species2}'
+        ds_species2_out['mf_priorBC'].attrs['long_name'] = f'Background simulated atmospheric mole fractions of {self.species2}'
+        ds_species2_out['mf_post'].attrs['long_name'] = f'Posterior atmospheric mole fractions of {self.species2}'
+        ds_species2_out['mf_post_68'].attrs['long_name'] = f'Posterior 68% confidence interval of {self.species2} mole fraction in dry air'
+        ds_species2_out['mf_postBC'].attrs['long_name'] = f'Posterior background atmospheric mole fractions of {self.species2}'
+        ds_species2_out['mf_postBC_68'].attrs['long_name'] = f'Posterior background 68% confidence interval of {self.species2} mole fraction in dry air'
+
+        if self.output_dir is not None:
+            ds_species1_out.to_netcdf(f"{self.output_dir}/ARTEMIS_molefraction_{self.inverse_method}_{self.species}_{self.start_date}_{self.outputname_id}.nc")
+            ds_species2_out.to_netcdf(f"{self.output_dir}/ARTEMIS_molefraction_{self.inverse_method}_{self.species2}_{self.start_date}_{self.outputname_id}.nc")
+        return ds_species1_out, ds_species2_out
+
+    def compute_fluxes(self):
+        """
+        Calculate gridded fluxes from the inversion results.
+        """
+        from mit_inversions.data.species_molar_masses import molarmasses
+        self.process_data()
+
+        # Get molar masses for the species
+        species1_mm = molarmasses[self.species]
+        species2_mm = molarmasses[self.species2]
+
+        # Get basis function and model domain grid information
+        bf_grid = self.fp_sens_dict_out[".basis_function_grid"].values
+        nbasis = self.nbasis
+        latitude = self.flux_grid_prior['latitude'].values
+        longitude = self.flux_grid_prior['longitude'].values
+        grid_cell_area = grid_cell_area_m2(latitude, longitude)
+
+        year = pd.to_datetime(self.start_date).year
+        seconds_year = seconds_per_year(year)
+
+        # Fluxes in model domain
+        # --- Gas 1 ---
+        g1_flux_prior = self.flux_grid_prior
+        g1_flux_post_sf_bf = np.array([self.xpost_s1/self.xprior_s1, self.xpost_s2/self.xprior_s2])
+
+        g1_flux_post_sf_grid = []
+        for i in range(g1_flux_post_sf_bf.shape[0]):
+            _flux_post_sf = np.zeros(bf_grid.shape)
+            for j in range(nbasis):
+                indy, indx = np.where(bf_grid == j)
+                for k in range(len(indy)):
+                    _flux_post_sf[indy[k], indx[k]] = g1_flux_post_sf_bf[i, j]
+            g1_flux_post_sf_grid.append(_flux_post_sf)
+        g1_flux_post_sf_grid = np.array(g1_flux_post_sf_grid)
+        g1_flux_post_grid = g1_flux_prior['flux'].values * g1_flux_post_sf_grid
+
+
+        # --- Gas 2 ---
+        g2_flux_prior = self.flux_grid_prior2
+        g2_flux_post_sf_bf = np.array([self.xpost_s1/self.xprior_s1])
+
+        g2_flux_post_sf_grid = np.zeros(bf_grid.shape)
+        for j in range(nbasis):
+            indy, indx = np.where(bf_grid == j)
+            for k in range(len(indy)):
+                g2_flux_post_sf_grid[indy[k], indx[k]] = g2_flux_post_sf_bf[0,j,0]
+        g2_flux_post_grid = g2_flux_prior['flux'].values[0] * g2_flux_post_sf_grid
+
+
+        # Posterior covariance matrices for each sector
+        emi_post_g1s1_cov = self.emi_post_cov[0:nbasis,0:nbasis]    # Gas 1, sector 1 covariance basis functions
+        emi_post_g1s2_cov = self.emi_post_cov[nbasis:,nbasis:]      # Gas 1, sector 2 covariance basis functions
+        emi_post_g1s1s2_cov = self.emi_post_cov[0:nbasis,nbasis:]   # Gas 1, sector 1 and sector 2 covariance basis functions
+
+        var_g1s1 = np.diagonal(emi_post_g1s1_cov)                   # Gas 1, sector 1 posterior variance on each basis function
+        var_g1s2 = np.diagonal(emi_post_g1s2_cov)                   # Gas 1, sector 1 posterior variance on each basis function
+        cov_g1s1s2 = np.diagonal(emi_post_g1s1s2_cov)               # Gas 1, sector 1 and sector 2 posterior covariance on each basis function
+        var_g1_total_bf = var_g1s1 + var_g1s2 + 2*cov_g1s1s2        # Total Gas 1 posterior variance on each basis function
+        corr_g1s1s2 = cov_g1s1s2 / np.sqrt(var_g1s1 * var_g1s2)     # Correlation between Gas 1, sector 1 and sector 2 posterior emissions on each basis function
+
+        var_g2s1 = np.diagonal(emi_post_g1s1_cov * np.diagonal(self.A_alpha))    # Gas 2, sector 1 posterior variance on each basis function
+        var_g2_total_bf = var_g2s1                                  # Total Gas 2 posterior variance on each basis function
+
+
+        #   flux uncertainties
+        _flux_post_68_s1 = np.zeros(bf_grid.shape)
+        _flux_post_68_s2 = np.zeros(bf_grid.shape)
+        _flux_post_68_total = np.zeros(bf_grid.shape)
+        _flux_post_corr = np.zeros(bf_grid.shape)
+
+        for i in range(nbasis):
+            indy, indx = np.where(bf_grid == i)
+            for j in range(len(indy)):
+                _flux_post_68_s1[indy[j], indx[j]] = np.sqrt(var_g1s1[i]) /len(indy)
+                _flux_post_68_s2[indy[j], indx[j]] = np.sqrt(var_g1s2[i]) /len(indy)
+                _flux_post_68_total[indy[j], indx[j]] = np.sqrt(var_g1_total_bf[i]) /len(indy)
+                _flux_post_corr[indy[j], indx[j]] = corr_g1s1s2[i]
+
+        g1_flux_post_grid_68 = np.array([_flux_post_68_s1, _flux_post_68_s2])
+        g1_flux_post_grid_68_total = np.array(_flux_post_68_total)
+        g1_flux_post_grid_corr = np.array(_flux_post_corr)
+
+        mycoords = {
+            'flux_sector': self.flux_grid_prior['flux_sector'].values,
+            'latitude': self.flux_grid_prior['latitude'].values,
+            'longitude': self.flux_grid_prior['longitude'].values,
+                    }
+
+        flux_out = xr.Dataset({
+            'flux_prior': (['flux_sector', 'latitude', 'longitude'], g1_flux_prior['flux'].values),
+            'flux_posterior': (['flux_sector', 'latitude', 'longitude'], g1_flux_post_grid),
+            'flux_posterior_68': (['flux_sector', 'latitude', 'longitude'], g1_flux_post_grid_68),
+            'flux_posterior_68_total': (['latitude', 'longitude'], g1_flux_post_grid_68_total),
+            'flux_posterior_corr': (['latitude', 'longitude'], g1_flux_post_grid_corr),
+            }, 
+            coords=mycoords)
+        
+        emi_prior_grid = flux_out['flux_prior'] * grid_cell_area['area'] * seconds_year * species1_mm
+        emi_post_grid = flux_out['flux_posterior'] * grid_cell_area['area'] * seconds_year * species1_mm
+        emi_post_grid_68 = flux_out['flux_posterior_68'] * grid_cell_area['area'] * seconds_year * species1_mm
+        emi_post_grid_68_total = flux_out['flux_posterior_68_total'] * grid_cell_area['area'] * seconds_year * species1_mm
+
+        flux_out['emissions_prior'] = emi_prior_grid
+        flux_out['emissions_posterior'] = emi_post_grid
+        flux_out['emissions_posterior_68'] = emi_post_grid_68
+        flux_out['emissions_posterior_68_total'] = emi_post_grid_68_total
+        flux_out['cell_area'] = grid_cell_area['area']
+
+        flux_out.attrs['species'] = self.species
+        flux_out.attrs['title'] = f"ARTEMIS inversion results for {self.species}"
+        flux_out.attrs['institution'] = "Massachusetts Institute of Technology (MIT)"
+        flux_out.attrs['creator'] = "MIT Atmospheric Inverse Modeling Group"
+        flux_out.attrs['creation_date'] = pd.Timestamp.now().isoformat()
+        flux_out.attrs['contact'] = "esaboya@mit.edu"
+        flux_out.attrs['transport_model'] = self.atmospheric_transport_model
+        flux_out.attrs['inversion_system'] = "ARTEMIS"
+        flux_out.attrs['inverse_method'] = self.inverse_method
+        flux_out.attrs['Alpha'] = np.diagonal(self.A_alpha)[0]
+        flux_out.attrs['Sa'] = np.diagonal(self.Sa_alpha)[0]
+
+        # Unit attributes
+        flux_out['flux_prior'].attrs['units'] = 'mol/m2/s'
+        flux_out['flux_posterior'].attrs['units'] = 'mol/m2/s'
+        flux_out['flux_posterior_68'].attrs['units'] = 'mol/m2/s'
+        flux_out['flux_posterior_68_total'].attrs['units'] = 'mol/m2/s'
+        flux_out['flux_posterior_corr'].attrs['units'] = 'None'
+        flux_out['emissions_prior'].attrs['units'] = 'g/yr'
+        flux_out['emissions_posterior'].attrs['units'] = 'g/yr'
+        flux_out['emissions_posterior_68'].attrs['units'] = 'g/yr'
+        flux_out['emissions_posterior_68_total'].attrs['units'] = 'g/yr'
+        flux_out['cell_area'].attrs['units'] = 'm2'
+
+        # Long name
+        flux_out['flux_prior'].attrs['long_name'] = 'Prior fluxes for Sector 1 and Sector 2'
+        flux_out['flux_posterior'].attrs['long_name'] = 'Posterior fluxes for Sector 1 and Sector 2'
+        flux_out['flux_posterior_68'].attrs['long_name'] = 'Posterior fluxes 68% confidence interval for Sector 1 and Sector 2'
+        flux_out['flux_posterior_68_total'].attrs['long_name'] = 'Posterior fluxes 68% confidence interval for total fluxes (Sector 1 + Sector 2 + covariance)'
+        flux_out['flux_posterior_corr'].attrs['long_name'] = 'Correlation between Sector 1 and Sector 2'
+        flux_out['emissions_prior'].attrs['long_name'] = 'Prior emissions for Sector 1 and Sector 2'
+        flux_out['emissions_posterior'].attrs['long_name'] = 'Posterior emissions for Sector 1 and Sector 2'
+        flux_out['emissions_posterior_68'].attrs['long_name'] = 'Posterior emissions 68% confidence interval for Sector 1 and Sector 2'
+        flux_out['emissions_posterior_68_total'].attrs['long_name'] = 'Posterior emissions 68% confidence interval for total emissions (Sector 1 + Sector 2 + covariance)'
+        flux_out['cell_area'].attrs['long_name'] = 'Grid cell area'
+
+
+        # --- Gas 2 ---
+        #   flux uncertainties
+        _flux_post_68_s1 = np.zeros(bf_grid.shape)
+        _flux_post_68_total = np.zeros(bf_grid.shape)
+
+        for i in range(nbasis):
+            indy, indx = np.where(bf_grid == i)
+            for j in range(len(indy)):
+                _flux_post_68_s1[indy[j], indx[j]] = np.sqrt(var_g2s1[i]) / len(indy)
+                _flux_post_68_total[indy[j], indx[j]] = np.sqrt(var_g2_total_bf[i]) / len(indy)
+
+        g2_flux_post_grid_68 = np.array([_flux_post_68_s1])
+        g2_flux_post_grid_68_total = np.array(_flux_post_68_total) 
+
+        mycoords2 = {
+            'flux_sector': np.array([self.flux_grid_prior['flux_sector'].values[0]]),
+            'latitude': self.flux_grid_prior['latitude'].values,
+            'longitude': self.flux_grid_prior['longitude'].values,
+                    }
+        
+        flux_out_2 = xr.Dataset({
+            'flux_prior': (['flux_sector', 'latitude', 'longitude'], g2_flux_prior['flux'].values),
+            'flux_posterior': (['flux_sector', 'latitude', 'longitude'], np.reshape(g2_flux_post_grid, (1, g2_flux_post_grid.shape[0], g2_flux_post_grid.shape[1]))),
+            'flux_posterior_68': (['flux_sector', 'latitude', 'longitude'], g2_flux_post_grid_68),
+            'flux_posterior_68_total': (['latitude', 'longitude'], g2_flux_post_grid_68_total),
+            }, 
+            coords=mycoords2)
+        
+        emi2_prior_grid = flux_out_2['flux_prior'] * grid_cell_area['area'] * seconds_year * species2_mm
+        emi2_post_grid = flux_out_2['flux_posterior'] * grid_cell_area['area'] * seconds_year * species2_mm
+        emi2_post_grid_68 = flux_out_2['flux_posterior_68'] * grid_cell_area['area'] * seconds_year * species2_mm
+        emi2_post_grid_68_total = flux_out_2['flux_posterior_68_total'] * grid_cell_area['area'] * seconds_year * species2_mm
+
+        flux_out_2['emissions_prior'] = emi2_prior_grid
+        flux_out_2['emissions_posterior'] = emi2_post_grid
+        flux_out_2['emissions_posterior_68'] = emi2_post_grid_68
+        flux_out_2['emissions_posterior_68_total'] = emi2_post_grid_68_total
+        flux_out_2['cell_area'] = grid_cell_area['area']
+
+        flux_out_2.attrs['species'] = self.species2
+        flux_out_2.attrs['Alpha'] = np.diagonal(self.A_alpha)[0]
+        flux_out_2.attrs['Sa'] = np.diagonal(self.Sa_alpha)[0]
+
+        # Unit attributes
+        flux_out_2['flux_prior'].attrs['units'] = 'mol/m2/s'
+        flux_out_2['flux_posterior'].attrs['units'] = 'mol/m2/s'
+        flux_out_2['flux_posterior_68'].attrs['units'] = 'mol/m2/s'
+        flux_out_2['flux_posterior_68_total'].attrs['units'] = 'mol/m2/s'
+        flux_out_2['emissions_prior'].attrs['units'] = 'g/yr'
+        flux_out_2['emissions_posterior'].attrs['units'] = 'g/yr'
+        flux_out_2['emissions_posterior_68'].attrs['units'] = 'g/yr'
+        flux_out_2['emissions_posterior_68_total'].attrs['units'] = 'g/yr'
+        flux_out_2['cell_area'].attrs['units'] = 'm2'
+
+        # Long name
+        flux_out_2['flux_prior'].attrs['long_name'] = 'Prior fluxes for Sector 1'
+        flux_out_2['flux_posterior'].attrs['long_name'] = 'Posterior fluxes for Sector 1'
+        flux_out_2['flux_posterior_68'].attrs['long_name'] = 'Posterior fluxes 68% confidence interval for Sector 1'
+        flux_out_2['flux_posterior_68_total'].attrs['long_name'] = 'Posterior fluxes 68% confidence interval for total fluxes (Sector 1)'
+
+        flux_out_2['emissions_prior'].attrs['long_name'] = 'Prior emissions for Sector 1'
+        flux_out_2['emissions_posterior'].attrs['long_name'] = 'Posterior emissions for Sector 1'
+        flux_out_2['emissions_posterior_68'].attrs['long_name'] = 'Posterior emissions 68% confidence interval for Sector 1'
+        flux_out_2['emissions_posterior_68_total'].attrs['long_name'] = 'Posterior emissions 68% confidence interval for total emissions (Sector 1)'
+        flux_out_2['cell_area'].attrs['long_name'] = 'Grid cell area'
+
+        return flux_out, flux_out_2
+
+    def compute_country_emissions(self):
+        """
+        Calculate country totals for prior and posterior emissions, including uncertainties, for both species.
+        """
+        g1_flux_out, g2_flux_out = self.compute_fluxes()
+
+        domain_lon = g1_flux_out['longitude'].values
+        domain_lat = g1_flux_out['latitude'].values
+        cmask = get_countries_for_grid(domain_lon, domain_lat)
+        countries_in_domain = list(np.sort(list(set(cmask.data.flatten()))))
+        ncountries = len(countries_in_domain)
+
+        # Get the number of basis functions
+        bf_grid = self.fp_sens_dict_out['.basis_function_grid'].values
+        nbasis = len(np.unique(bf_grid))
+
+        country_names = []
+
+        # GAS 1
+        country_prior_emissions_g1s1 = []
+        country_prior_emissions_g1s2 = []
+        country_post_emissions_g1s1 = []
+        country_post_emissions_g1s2 = []
+
+        # Emissions uncertainties w/o covariance
+        country_post_emissions_g1s1_68 = []
+        country_post_emissions_g1s2_68 = []
+
+        # Emissions uncertainties w/ covariance
+        country_post_emissions_g1_68_total = []
+
+        # GAS 2
+        country_prior_emissions_g2s1 = []
+        country_post_emissions_g2s1 = []
+        country_post_emissions_g2s1_68 = []
+
+        name_mapping = {}
+        name_mapping['g1_sector1'] = g1_flux_out['flux_sector'].values[0]
+        name_mapping['g1_sector2'] = g1_flux_out['flux_sector'].values[1]
+        name_mapping['g2_sector1'] = g2_flux_out['flux_sector'].values[0]
+
+        for i, country in enumerate(countries_in_domain):
+            country_names.append(country)
+            country_mask = (cmask.data == country)
+            
+            country_prior_emissions_g1s1.append(np.sum(country_mask * g1_flux_out['emissions_prior'].sel(flux_sector=name_mapping['g1_sector1']).values))
+            country_prior_emissions_g1s2.append(np.sum(country_mask * g1_flux_out['emissions_prior'].sel(flux_sector=name_mapping['g1_sector2']).values))
+            country_post_emissions_g1s1.append(np.nansum(country_mask * g1_flux_out['emissions_posterior'].sel(flux_sector=name_mapping['g1_sector1']).values))
+            country_post_emissions_g1s2.append(np.nansum(country_mask * g1_flux_out['emissions_posterior'].sel(flux_sector=name_mapping['g1_sector2']).values))
+            country_post_emissions_g1s1_68.append(np.nansum((country_mask * g1_flux_out['emissions_posterior_68'].sel(flux_sector=name_mapping['g1_sector1']).values)))
+            country_post_emissions_g1s2_68.append(np.nansum((country_mask * g1_flux_out['emissions_posterior_68'].sel(flux_sector=name_mapping['g1_sector2']).values)))
+            country_post_emissions_g1_68_total.append(np.nansum((country_mask * g1_flux_out['emissions_posterior_68_total'].values)))
+
+            country_prior_emissions_g2s1.append(np.sum(country_mask * g2_flux_out['emissions_prior'].sel(flux_sector=name_mapping['g2_sector1']).values))
+            country_post_emissions_g2s1.append(np.nansum(country_mask * g2_flux_out['emissions_posterior'].sel(flux_sector=name_mapping['g2_sector1']).values))
+            country_post_emissions_g2s1_68.append(np.nansum((country_mask * g2_flux_out['emissions_posterior_68'].sel(flux_sector=name_mapping['g2_sector1']).values)))
+
+
+        ds_country_emissions_g1 = xr.Dataset({
+            'country_names': (['country'], country_names),
+            'country_prior_emissions_g1s1': (['country'], country_prior_emissions_g1s1),
+            'country_prior_emissions_g1s2': (['country'], country_prior_emissions_g1s2),
+            'country_post_emissions_g1s1': (['country'], country_post_emissions_g1s1),
+            'country_post_emissions_g1s2': (['country'], country_post_emissions_g1s2),
+            'country_post_emissions_g1s1_68': (['country'], country_post_emissions_g1s1_68),
+            'country_post_emissions_g1s2_68': (['country'], country_post_emissions_g1s2_68),
+            'country_post_emissions_g1_68_total': (['country'], country_post_emissions_g1_68_total),
+        })
+
+        ds_country_emissions_g1.attrs['species'] = self.species
+        ds_country_emissions_g1.attrs['g1_sector1'] = name_mapping['g1_sector1']
+        ds_country_emissions_g1.attrs['g1_sector2'] = name_mapping['g1_sector2']
+        ds_country_emissions_g1.attrs['units'] = 'g/yr'
+        ds_country_emissions_g1.attrs['long_name'] = f'Country totals for prior and posterior emissions, including uncertainties, for both sectors of {self.species}'
+        ds_country_emissions_g1.attrs['start_date'] = self.start_date
+        ds_country_emissions_g1.attrs['end_date'] = self.end_date
+        
+        ds_country_emissions_g2 = xr.Dataset({
+            'country_names': (['country'], country_names),
+            'country_prior_emissions_g2s1': (['country'], country_prior_emissions_g2s1),
+            'country_post_emissions_g2s1': (['country'], country_post_emissions_g2s1),
+            'country_post_emissions_g2s1_68': (['country'], country_post_emissions_g2s1_68),
+        })
+
+        ds_country_emissions_g2.attrs['species'] = self.species2
+        ds_country_emissions_g2.attrs['g2_sector1'] = name_mapping['g2_sector1']
+        ds_country_emissions_g2.attrs['units'] = 'g/yr'
+        ds_country_emissions_g2.attrs['long_name'] = f'Country totals for prior and posterior emissions, including uncertainties, for {self.species2}'
+        ds_country_emissions_g2.attrs['start_date'] = self.start_date
+        ds_country_emissions_g2.attrs['end_date'] = self.end_date
+
+        if self.output_dir is not None:
+            ds_country_emissions_g1.to_netcdf(f"{self.output_dir}/country_emissions_{self.species}_{self.start_date}_{self.outputname_id}.nc")
+            ds_country_emissions_g2.to_netcdf(f"{self.output_dir}/country_emissions_{self.species2}_{self.start_date}_{self.outputname_id}.nc")
+            g1_flux_out.to_netcdf(f"{self.output_dir}/ARTEMIS_fluxes_{self.species}_{self.start_date}_{self.outputname_id}.nc")
+            g2_flux_out.to_netcdf(f"{self.output_dir}/ARTEMIS_fluxes_{self.species2}_{self.start_date}_{self.outputname_id}.nc")
+
+        return g1_flux_out, g2_flux_out, ds_country_emissions_g1, ds_country_emissions_g2
