@@ -904,9 +904,8 @@ class PostProcessingMultiTracer:
         mf_g2_postBC = self.HBC_g2 @ self.xpostBC_g2
         mf_g2_post = (self.H_s1_g2 @ self.A_alpha @ self.xpost_s1) + mf_g2_postBC
 
-        g2BC_std = np.sqrt(np.diagonal(self.bc_post_cov[nbasisBC:, nbasisBC:]).reshape(-1, 1))
-        mf_g2_postBC_err = self.HBC_g2 @ g2BC_std
-        mf_g2_post_err = (self.H_s1_g2 @ self.A_alpha @ emi_s1_std)**2 + mf_g2_postBC_err **2
+        mf_g2_postBC_err = (self.HBC_g2 ** 2) @ (g2BC_std ** 2)
+        mf_g2_post_err = (self.H_s1_g2 ** 2) @ ((self.A_alpha @ emi_s1_std) ** 2) + mf_g2_postBC_err
 
         # GAS 1 XARRAY DATASET
         ds_species1_out = xr.Dataset({
