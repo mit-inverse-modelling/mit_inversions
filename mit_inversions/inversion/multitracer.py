@@ -223,7 +223,7 @@ def multitracer_inversion(data_dict_inputs: dict,
     lambda21 = - B22 @ H2.T @ (Sinv11 @ H1 @ B11 + Sinv12 @ G @ A_alpha @ B11)
     lambda22 = B22 - B22 @ H2.T @ (Sinv11 @ H2 @ B22)
 
-    lambda33 = - Bbc1 @ Hbc.T @ (Sinv11 @ Hbc @ Bbc1)
+    lambda33 = Bbc1 - Bbc1 @ Hbc.T @ (Sinv11 @ Hbc @ Bbc1)
     lambda34 = - Bbc1 @ Hbc.T @ (Sinv12 @ Gbc @ Bbc2)
 
     lambda43 = - Bbc2 @ Gbc.T @ (Sinv21 @ Hbc @ Bbc1)
