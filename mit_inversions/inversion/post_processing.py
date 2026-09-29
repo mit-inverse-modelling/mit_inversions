@@ -1055,8 +1055,7 @@ class PostProcessingMultiTracer:
         cov_g1s1s2 = np.diagonal(emi_post_g1s1s2_cov)               # Gas 1, sector 1 and sector 2 posterior covariance on each basis function
         var_g1_total_bf = var_g1s1 + var_g1s2 + 2*cov_g1s1s2        # Total Gas 1 posterior variance on each basis function
         corr_g1s1s2 = cov_g1s1s2 / np.sqrt(var_g1s1 * var_g1s2)     # Correlation between Gas 1, sector 1 and sector 2 posterior emissions on each basis function
-
-        var_g2s1 = np.diagonal(emi_post_g1s1_cov * np.diagonal(self.A_alpha))    # Gas 2, sector 1 posterior variance on each basis function
+        var_g2s1 = np.diagonal(self.A_alpha @ emi_post_g1s1_cov @ self.A_alpha.T)  # Gas 2, sector 1 posterior variance on each basis function
         var_g2_total_bf = var_g2s1                                  # Total Gas 2 posterior variance on each basis function
 
 
