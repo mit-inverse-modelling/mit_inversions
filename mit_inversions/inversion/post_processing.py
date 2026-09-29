@@ -891,9 +891,8 @@ class PostProcessingMultiTracer:
         emi_s2_std = np.sqrt(np.abs(np.diagonal(self.emi_post_cov[nbasis:, nbasis:]).reshape(-1, 1)))
         g1BC_std = np.sqrt(np.abs(np.diagonal(self.bc_post_cov[0:nbasisBC, 0:nbasisBC]).reshape(-1, 1)))
 
-        mf_g1_postBC_err = self.HBC_g1 @ g1BC_std
-        mf_g1_post_err = (self.H_s1_g1 @ emi_s1_std)**2 + (self.H_s2_g1 @ emi_s2_std)**2 + mf_g1_postBC_err **2
-
+        mf_g1_postBC_err = (self.HBC_g1 ** 2) @ (g1BC_std ** 2)
+        mf_g1_post_err = (self.H_s1_g1 ** 2) @ (emi_s1_std ** 2) + (self.H_s2_g1 ** 2) @ (emi_s2_std ** 2) + mf_g1_postBC_err
 
         # Gas 2
         mf_g2_obs = self.mf_g2
