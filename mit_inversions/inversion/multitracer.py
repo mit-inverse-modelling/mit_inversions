@@ -85,8 +85,7 @@ def multitracer_inversion(data_dict_inputs: dict,
     }
     g1_ds = xr.Dataset(data_vars=g1_vars, coords=g1_coords)
     mask = g1_ds["Y"].notnull() & g1_ds["R"].notnull()
-    g1 = g1_ds.sel(time=mask)
-
+    g1 = g1_ds.where(mask, drop=True)
     # Gas 2
     g2_vars = {
         "Y": (["time"], Y_concat2),
