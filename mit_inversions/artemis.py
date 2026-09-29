@@ -196,10 +196,10 @@ def artemis_multitracer(data_dict_inputs: dict):
                       base_data_dir=data_dict_inputs['base_data_dir'],
                       ).align_flux_footprint()
 
+   alpha_scalar = np.asarray(data_dict_inputs['alpha']).item()
    for sector in data_dict_inputs['flux_dict_2'].keys():
       if data_dict_inputs['flux_dict_2'][sector]['mode'] == 'auto_generation':
-         data_dict_inputs['flux_dict_2'][sector]['total_emissions_Gg'] = data_dict_inputs['flux_dict_1'][sector]['total_emissions_Gg'] * data_dict_inputs['alpha']
-
+         data_dict_inputs['flux_dict_2'][sector]['total_emissions_Gg'] = data_dict_inputs['flux_dict_1'][sector]['total_emissions_Gg'] * alpha_scalar
    (fp_flux_grid_2,
     mf_sim_2,
     flux_grid_2,
