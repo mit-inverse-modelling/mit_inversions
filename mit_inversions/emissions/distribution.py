@@ -131,6 +131,10 @@ def _compute_weights(method, lats, lons, area_m2, nightlights_path=None, populat
     elif method == "uniform_over_land":
         codes = get_countries_for_grid(lons, lats, base_data_dir=base_data_dir).values
         weights = np.where(codes != "OCN", area_km2, 0.0)
+
+        # cmask = xr.open_dataset('/home/esaboya/country_masks/country_mask_EASTASIA_v2026.nc')
+        # codes = cmask['country'].values
+        # weights = np.where(codes != 0, area_km2, 0.0)
     
     elif method == "nightlights":
         path = Path(nightlights_path) if nightlights_path else _default_proxy_path(base_data_dir, "masks/reference/nightlights_0.1deg.nc")
@@ -148,8 +152,11 @@ def _compute_weights(method, lats, lons, area_m2, nightlights_path=None, populat
                 f"Population proxy file not found: {path}. Generate proxy file first."
             )
         proxy = _load_proxy(path, "population_density", lats, lons)
-
         weights = np.where(np.isfinite(proxy) & (proxy >= 0), proxy, 0.0).astype(float) * area_km2
+
+        # cmask = xr.open_dataset('/home/esaboya/country_masks/country_mask_EASTASIA_v2026.nc')
+        # codes = cmask['country'].values
+        # weights = np.where((proxy >= 0) & (codes != 0), proxy, 0.0).astype(float) * area_km2
 
     weight_sum = float(np.nansum(weights))
     if weight_sum <= 0:
