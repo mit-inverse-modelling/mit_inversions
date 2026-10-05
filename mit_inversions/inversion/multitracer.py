@@ -26,7 +26,9 @@ def multitracer_inversion(data_dict_inputs: dict,
                           gas1_data_dict_bc: dict,
                           gas2_data_dict_bc: dict,
                           flux_grid_1: xr.Dataset,
-                          flux_grid_2: xr.Dataset
+                          flux_grid_2: xr.Dataset,
+                          alpha: np.ndarray,
+                          Sa: np.ndarray,
                           ):
     """
     Function to prepare data for multitracer inversion and to run the inversion. 
@@ -41,13 +43,11 @@ def multitracer_inversion(data_dict_inputs: dict,
     flux_sector_bf,
     site_indicator,
     obs_site_names,
-    bc_data_indicator,
-    ) = InversionSetupRun(
-        model_data_dict=fp_sens_out_gas1,
-        bc_dict=gas1_data_dict_bc,
-        flux_grid=flux_grid_1,
-        inverse_method=data_dict_inputs["inverse_method"],
-    ).run_multitracer()
+    bc_data_indicator) = InversionSetupRun(model_data_dict=fp_sens_out_gas1,
+                                           bc_dict=gas1_data_dict_bc,
+                                           flux_grid=flux_grid_1,
+                                           inverse_method=data_dict_inputs["inverse_method"],
+                                           ).run_multitracer()
      
     # Prepare Gas 2 data for multitracer inversion
     (
@@ -65,110 +65,128 @@ def multitracer_inversion(data_dict_inputs: dict,
                                             inverse_method=data_dict_inputs['inverse_method'],
                                             basis_function_grid=fp_sens_out_gas1['.basis_function_grid']
                                             ).run_multitracer()
-   
-    # Create xarray datasets for each gas
-    # Gas 1
-    g1_vars = {
-        "Y": (["time"], Y_concat),
-        "R": (["time"], YError_concat),
-        "H1": (["time", "region"], H_fp_concat[0]),
-        "H2": (["time", "region"], H_fp_concat[1]),
-        "Hbc": (["time", "regionBC"], H_bc_concat),
-        "xa1": (["region"], flux_sector_bf.values[0]),
-        "xa2": (["region"], flux_sector_bf.values[1]),
-        "xbc": (["regionBC"], np.ones(H_bc_concat.shape[1], dtype=np.float64)),
-    }
-    g1_coords = {
-        "time": (["time"], t_concat),
-        "region": (["region"], flux_sector_bf['region'].values),
-        "regionBC": (["regionBC"], np.array(["0", "1", "2", "3"] * int(H_bc_concat.shape[1]/4))),
-    }
-    g1_ds = xr.Dataset(data_vars=g1_vars, coords=g1_coords)
-    mask = g1_ds["Y"].notnull() & g1_ds["R"].notnull()
-    g1 = g1_ds.where(mask, drop=True)
-    # Gas 2
-    g2_vars = {
-        "Y": (["time"], Y_concat2),
-        "R": (["time"], YError_concat2),
-        "G1": (["time", "region"], G_fp_concat[0]),
-        "Gbc": (["time", "regionBC"], G_bc_concat),
-        "xbc2": (["regionBC"], np.ones(G_bc_concat.shape[1], dtype=np.float64)),
-        }
-    g2_coords = {
-        "time": (["time"], t_concat2),
-        "region": (["region"], flux_sector_bf2['region'].values),
-        "regionBC": (["regionBC"], np.array(["0", "1", "2", "3"] * int(G_bc_concat.shape[1]/4))),
-    }
-    g2_ds = xr.Dataset(data_vars=g2_vars, coords=g2_coords)
-    mask = g2_ds["Y"].notnull() & g2_ds["R"].notnull()
-    g2 = g2_ds.sel(time=mask)
-
-    common_time = pd.date_range(start=data_dict_inputs['start_date'], 
-                                end=data_dict_inputs['end_date'], 
-                                freq="h")[0:-1] 
     
-    g1_hourly = g1.reindex(time=common_time, method='nearest', tolerance=pd.Timedelta('0.4h'))
-    g2_hourly = g2.reindex(time=common_time, method='nearest', tolerance=pd.Timedelta('0.4h'))
-    tmask = g1_hourly["Y"].notnull() & g1_hourly["R"].notnull() & g2_hourly["Y"].notnull() & g2_hourly["R"].notnull()
+    common_time = pd.date_range(start=data_dict_inputs['start_date'], end=data_dict_inputs['end_date'], freq="h")[0:-1] 
+    
+    # Get unique site names
+    sitenames = []
+    for site in obs_site_names:
+        if site not in sitenames:
+            sitenames.append(site)
 
-    # Extract the relevant data for the multitracer inversion
-    # Gas 1
-    Y1 = np.reshape(g1_hourly["Y"].values[tmask], (1, -1)).T
-    H1 = g1_hourly['H1'].values[tmask,:]
-    H2 = g1_hourly['H2'].values[tmask,:]
-    Hbc = g1_hourly['Hbc'].values[tmask,:]
-    Xa1 = np.reshape(g1_hourly["xa1"].values, (1, -1)).T
-    Xa2 = np.reshape(g1_hourly["xa2"].values, (1, -1)).T
-    XaBC1 = g1_hourly["xbc"].values.reshape(-1, 1)
+    for i, site in enumerate(sitenames):
+        # Gas 1
+        site_inds_g1 = np.where(np.array(site_indicator) == i)[0]
+        g1_vars = {
+            "Y": (["time"], Y_concat[site_inds_g1]),
+            "R": (["time"], YError_concat[site_inds_g1]),
+            "H1": (["time", "region"], H_fp_concat[0][site_inds_g1, :]),
+            "H2": (["time", "region"], H_fp_concat[1][site_inds_g1, :]),
+            "Hbc": (["time", "regionBC"], H_bc_concat[site_inds_g1, :]),
+            "xa1": (["region"], flux_sector_bf.values[0]),
+            "xa2": (["region"], flux_sector_bf.values[1]),
+            "xbc": (["regionBC"], np.ones(H_bc_concat.shape[1], dtype=np.float64)),
+        }
+        g1_coords = {
+            "time": (["time"], t_concat[site_inds_g1]),
+            "region": (["region"], flux_sector_bf['region'].values),
+            "regionBC": (["regionBC"], np.array(["0", "1", "2", "3"] * int(H_bc_concat.shape[1]/4))),
+        }
+        g1_ds = xr.Dataset(data_vars=g1_vars, coords=g1_coords)
+        g1_mask = g1_ds["Y"].notnull() & g1_ds["R"].notnull()
+        g1 = g1_ds.sel(time=g1_mask)
+
+        # Gas 2
+        site_inds_g2 = np.where(np.array(site_indicator2) == i)[0]
+        g2_vars = {
+            "Y": (["time"], Y_concat2[site_inds_g2]),
+            "R": (["time"], YError_concat2[site_inds_g2]),
+            "G1": (["time", "region"], G_fp_concat[0][site_inds_g2, :]),
+            "Gbc": (["time", "regionBC"], G_bc_concat[site_inds_g2, :]),
+            "xbc2": (["regionBC"], np.ones(G_bc_concat.shape[1], dtype=np.float64)),
+            }
+        g2_coords = {
+            "time": (["time"], t_concat2[site_inds_g2]),
+            "region": (["region"], flux_sector_bf2['region'].values),
+            "regionBC": (["regionBC"], np.array(["0", "1", "2", "3"] * int(G_bc_concat.shape[1]/4))),
+        }
+        g2_ds = xr.Dataset(data_vars=g2_vars, coords=g2_coords)
+        g2_mask = g2_ds["Y"].notnull() & g2_ds["R"].notnull()
+        g2 = g2_ds.sel(time=g2_mask)
+
+        # Reindex both datasets to a common hourly time index
+        g1_hourly = g1.reindex(time=common_time, method='nearest', tolerance=pd.Timedelta('0.4h'))
+        g2_hourly = g2.reindex(time=common_time, method='nearest', tolerance=pd.Timedelta('0.4h'))
+        tmask = g1_hourly["Y"].notnull() & g1_hourly["R"].notnull() & g2_hourly["Y"].notnull() & g2_hourly["R"].notnull()
+
+        if i==0:
+            t_all = g1_hourly["time"].values[tmask]
+            Y1 = g1_hourly["Y"].values[tmask]
+            R1 = g1_hourly["R"].values[tmask]
+            H1 = g1_hourly["H1"].values[tmask, :]
+            H2 = g1_hourly["H2"].values[tmask, :]
+            Hbc = g1_hourly["Hbc"].values[tmask, :]
+            Xa1 = g1_hourly["xa1"].values
+            Xa2 = g1_hourly["xa2"].values
+            XaBC1 = g1_hourly["xbc"].values
+
+            Y2 = g2_hourly["Y"].values[tmask]
+            R2 = g2_hourly["R"].values[tmask]
+            G = g2_hourly["G1"].values[tmask, :]
+            Gbc = g2_hourly["Gbc"].values[tmask, :]
+            XaBC2 = g2_hourly["xbc2"].values
+        else:
+            t_all = np.concatenate((t_all, g1_hourly["time"].values[tmask]), axis=0)
+            Y1 = np.concatenate((Y1, g1_hourly["Y"].values[tmask]), axis=0)
+            R1 = np.concatenate((R1, g1_hourly["R"].values[tmask]), axis=0)
+            H1 = np.concatenate((H1, g1_hourly["H1"].values[tmask, :]), axis=0)
+            H2 = np.concatenate((H2, g1_hourly["H2"].values[tmask, :]), axis=0)
+            Hbc = np.concatenate((Hbc, g1_hourly["Hbc"].values[tmask, :]), axis=0)
+
+            Y2 = np.concatenate((Y2, g2_hourly["Y"].values[tmask]), axis=0)
+            R2 = np.concatenate((R2, g2_hourly["R"].values[tmask]), axis=0)
+            G = np.concatenate((G, g2_hourly["G1"].values[tmask, :]), axis=0)
+            Gbc = np.concatenate((Gbc, g2_hourly["Gbc"].values[tmask, :]), axis=0)
+
+    Y1 = Y1.reshape(-1, 1)
+    Y2 = Y2.reshape(-1, 1)
+    Xa1 = Xa1.reshape(-1, 1)
+    Xa2 = Xa2.reshape(-1, 1)
+    XaBC1 = XaBC1.reshape(-1, 1)
+    XaBC2 = XaBC2.reshape(-1, 1)
+
     delta_mf_1 = Y1 - (H1 @ Xa1) - (H2 @ Xa2) - (Hbc @ XaBC1)
 
-    # Get dimensions
-    m = H1.shape[0]
-    n = H1.shape[1]
-
-    # Gas 2
-    Y2 = np.reshape(g2_hourly["Y"].values[tmask], (1, -1)).T
-    G = g2_hourly['G1'].values[tmask,:]
-    Gbc = g2_hourly['Gbc'].values[tmask,:]
-    XaBC2 = g2_hourly["xbc2"].values.reshape(-1, 1)
+    m = H1.shape[0] # No. time points
+    n = H1.shape[1] # No. flux basis functions
 
     # Emissions ratio (alpha) and its uncertainty (Sa) for the multitracer inversion
-    load_alpha = data_dict_inputs['alpha']
-    if load_alpha is None:
-        load_alpha = 1.0
-        print("Alpha not provided. Using default value of 1.0.")
-    elif load_alpha < 0.0:
-        raise ValueError("Alpha must be a non-negative value.")
+    if np.ndim(alpha) == 1:
+        A_alpha = np.diag(np.nan_to_num(alpha/Xa1.flatten()))
+    elif np.ndim(alpha) == 2 and alpha.shape == (n, n):
+        A_alpha = alpha
+    else:
+        raise ValueError("alpha must be a 1D array of length n or a 2D array of shape (n, n).")
     
-    if type(load_alpha) in [int, float]:
-        A_alpha = np.diag([load_alpha]*n)
-    elif isinstance(load_alpha, np.ndarray):
-        if load_alpha.ndim == 1 and load_alpha.size == n:
-            A_alpha = np.diag(load_alpha)
-        elif load_alpha.ndim == 2 and load_alpha.shape == (n, n):
-            A_alpha = load_alpha
-        else:
-            raise ValueError("Alpha must be a scalar, a 1D array of length n, or a 2D array of shape (n, n).")
+    # Emission ratio alpha uncertainty (Sa) and its covariance matrix for the multitracer inversion
+    if np.ndim(Sa) == 1:
+        Sa = np.diag(np.nan_to_num(Sa/Xa1.flatten()))
+    elif np.ndim(Sa) == 2 and Sa.shape == (n, n):
+        Sa = Sa
+    else:
+        raise ValueError("Sa must be a 1D array of length n or a 2D array of shape (n, n).")
+    
+    Sa_cov = Sa ** 2
 
-    load_Sa = data_dict_inputs['Sa']
-    if load_Sa is None:
-        load_Sa = 1.0
-        print("Sa not provided. Using default value of 1.0.")
-    elif load_Sa < 0.0:
-        raise ValueError("Sa must be a non-negative value.")
-
-    if type(load_Sa) in [int, float]:
-        Sa = np.diag([load_Sa]*n)
-    elif isinstance(load_Sa, np.ndarray):
-        if load_Sa.ndim == 1 and load_Sa.size == n:
-            Sa = np.diag(load_Sa)
-        elif load_Sa.ndim == 2 and load_Sa.shape == (n, n):
-            Sa = load_Sa
-        else:
-            raise ValueError("Sa must be a scalar, a 1D array of length n, or a 2D array of shape (n, n).")
-    Sa_cov = Sa
     delta_mf_2 = Y2 - (G @ A_alpha @ Xa1) - (Gbc @ XaBC2)
 
+    # Model-data uncertainty block matrix R terms (assumed to be diagonal):
+    #   R1: Uncertainty on gas 1 observations
+    #   R2: Uncertainty on gas 2 observations
+    #   R2_tilde: Uncertainty on gas 2 observations, plus the uncertainty from the emissions ratio (alpha) and its uncertainty (Sa)
+    R1 = np.diag(R1.flatten() ** 2)
+    R2 = np.diag(R2.flatten() ** 2)
+    R2_tilde = R2 + (H1 @ Sa_cov @ Xa1 @ Xa1.T @ Sa_cov.T @ H1.T)
 
     # Prior uncertainty block matrix B terms (assumed to be diagonal):
     #     [B11  0   0    0]
@@ -183,14 +201,8 @@ def multitracer_inversion(data_dict_inputs: dict,
     B22 = np.diag((data_dict_inputs['xa2_sigma'] * Xa2.flatten()) ** 2)
     Bbc1 = np.diag((data_dict_inputs['xbc1_sigma'] * XaBC1.flatten()) ** 2)
     Bbc2 = np.diag((data_dict_inputs['xbc2_sigma'] * XaBC2.flatten()) ** 2)
-
-    # Model-data uncertainty block matrix R terms (assumed to be diagonal):
-    #   R1: Uncertainty on gas 1 observations
-    #   R2: Uncertainty on gas 2 observations
-    #   R2_tilde: Uncertainty on gas 2 observations, plus the uncertainty from the emissions ratio (alpha) and its uncertainty (Sa)
-    R1 = np.diag(g1_hourly["R"].values[tmask].flatten() ** 2)
-    R2_tilde = np.diag(g2_hourly["R"].values[tmask].flatten() ** 2) + (H1 @ Sa_cov @ Xa1 @ Xa1.T @ Sa_cov.T @ H1.T)
-
+ 
+ 
     print("Running multitracer inversion ...")
     # We define the 2x2 block matrix S as S = KBK.T + R
     # S = [S11  S12]
@@ -219,13 +231,11 @@ def multitracer_inversion(data_dict_inputs: dict,
     # NB. Not including the covariances between fluxes and BCs
     lambda11 = B11 - B11 @ H1.T @ (Sinv11 @ H1 @ B11 + Sinv12 @ G @ A_alpha @ B11)
     lambda12 = - B11 @ H1.T @ (Sinv11 @ H2 @ B22) - B11 @ A_alpha.T @ G.T @ (Sinv21 @ H2 @ B22)
-
     lambda21 = - B22 @ H2.T @ (Sinv11 @ H1 @ B11 + Sinv12 @ G @ A_alpha @ B11)
     lambda22 = B22 - B22 @ H2.T @ (Sinv11 @ H2 @ B22)
 
     lambda33 = Bbc1 - Bbc1 @ Hbc.T @ (Sinv11 @ Hbc @ Bbc1)
     lambda34 = - Bbc1 @ Hbc.T @ (Sinv12 @ Gbc @ Bbc2)
-
     lambda43 = - Bbc2 @ Gbc.T @ (Sinv21 @ Hbc @ Bbc1)
     lambda44 = Bbc2 - Bbc2 @ Gbc.T @ (Sinv22 @ Gbc @ Bbc2)
 
@@ -234,7 +244,7 @@ def multitracer_inversion(data_dict_inputs: dict,
     bc_post_cov = np.block([[lambda33, lambda34], [lambda43, lambda44]])
 
     inversion_results = {
-        "time": g1_hourly.time[tmask],
+        "time": t_all,
         "Y1": Y1,
         "Y2": Y2,
         "x1_prior": Xa1,
@@ -247,7 +257,7 @@ def multitracer_inversion(data_dict_inputs: dict,
         "G": G,
         "Gbc": Gbc,
         "R1": R1,
-        "R2": np.diag(g2_hourly["R"].values[tmask].flatten() ** 2),
+        "R2": R2,
         "R2_tilde": R2_tilde,
         "A_alpha": A_alpha,
         "Sa": Sa,
