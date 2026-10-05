@@ -828,13 +828,13 @@ class PostProcessingMultiTracer:
         """
         Process the data for the multi-tracer analysis.
         """
-        self.time = self.inversion_results['time']['time'].values
+        self.time = self.inversion_results['time']
 
         # Observations
         self.mf_g1 = self.inversion_results['Y1'].flatten()
         self.mf_err_g1 = np.diagonal(self.inversion_results['R1'])
         self.mf_g2 = self.inversion_results['Y2'].flatten()
-        self.mf_err_g2 = np.diagonal(self.inversion_results['R2'])
+        self.mf_err_g2 = np.diagonal(self.inversion_results['R2_tilde'])
 
         # Prior sectoral fluxes (gas 1) for each basis function
         self.xprior_s1 = self.inversion_results['x1_prior']
@@ -890,6 +890,7 @@ class PostProcessingMultiTracer:
         emi_s1_std = np.sqrt(np.abs(np.diagonal(self.emi_post_cov[0:nbasis, 0:nbasis]).reshape(-1, 1)))
         emi_s2_std = np.sqrt(np.abs(np.diagonal(self.emi_post_cov[nbasis:, nbasis:]).reshape(-1, 1)))
         g1BC_std = np.sqrt(np.abs(np.diagonal(self.bc_post_cov[0:nbasisBC, 0:nbasisBC]).reshape(-1, 1)))
+        g2BC_std = np.sqrt(np.abs(np.diagonal(self.bc_post_cov[nbasisBC:, nbasisBC:]).reshape(-1, 1)))
 
         mf_g1_postBC_err = (self.HBC_g1 ** 2) @ (g1BC_std ** 2)
         mf_g1_post_err = (self.H_s1_g1 ** 2) @ (emi_s1_std ** 2) + (self.H_s2_g1 ** 2) @ (emi_s2_std ** 2) + mf_g1_postBC_err
@@ -953,6 +954,7 @@ class PostProcessingMultiTracer:
             "time": (["index"], self.time),
             "mf": (["index"], mf_g2_obs.flatten()),
             "mf_err": (["index"], mf_g2_obs_err),
+            "mf_prior": (["index"], mf_g2_prior.flatten()),
             "mf_priorBC": (["index"], mf_g2_priorBC.flatten()),
             "mf_post": (["index"], mf_g2_post.flatten()),
             "mf_post_68": (["index"], np.sqrt(mf_g2_post_err.flatten())),
@@ -1036,10 +1038,15 @@ class PostProcessingMultiTracer:
         g2_flux_post_sf_bf = np.array([self.xpost_s1/self.xprior_s1])
 
         g2_flux_post_sf_grid = np.zeros(bf_grid.shape)
+        alpha_grid = np.zeros(bf_grid.shape)
+        Sa_grid = np.zeros(bf_grid.shape)
+
         for j in range(nbasis):
             indy, indx = np.where(bf_grid == j)
             for k in range(len(indy)):
                 g2_flux_post_sf_grid[indy[k], indx[k]] = g2_flux_post_sf_bf[0,j,0]
+                alpha_grid[indy[k], indx[k]] = self.A_alpha[j,j]
+                Sa_grid[indy[k], indx[k]] = self.Sa_alpha[j,j]
         g2_flux_post_grid = g2_flux_prior['flux'].values[0] * g2_flux_post_sf_grid
 
 
@@ -1110,8 +1117,8 @@ class PostProcessingMultiTracer:
         flux_out.attrs['transport_model'] = self.atmospheric_transport_model
         flux_out.attrs['inversion_system'] = "ARTEMIS"
         flux_out.attrs['inverse_method'] = self.inverse_method
-        flux_out.attrs['Alpha'] = np.diagonal(self.A_alpha)[0]
-        flux_out.attrs['Sa'] = np.diagonal(self.Sa_alpha)[0]
+        # flux_out.attrs['Alpha'] = np.diagonal(self.A_alpha)[0]
+        # flux_out.attrs['Sa'] = np.diagonal(self.Sa_alpha)[0]
 
         # Unit attributes
         flux_out['flux_prior'].attrs['units'] = 'mol/m2/s'
@@ -1163,6 +1170,8 @@ class PostProcessingMultiTracer:
             'flux_posterior': (['flux_sector', 'latitude', 'longitude'], np.reshape(g2_flux_post_grid, (1, g2_flux_post_grid.shape[0], g2_flux_post_grid.shape[1]))),
             'flux_posterior_68': (['flux_sector', 'latitude', 'longitude'], g2_flux_post_grid_68),
             'flux_posterior_68_total': (['latitude', 'longitude'], g2_flux_post_grid_68_total),
+            'alpha': (['latitude', 'longitude'], alpha_grid),
+            'Sa': (['latitude', 'longitude'], Sa_grid)
             }, 
             coords=mycoords2)
         
@@ -1178,8 +1187,8 @@ class PostProcessingMultiTracer:
         flux_out_2['cell_area'] = grid_cell_area['area']
 
         flux_out_2.attrs['species'] = self.species2
-        flux_out_2.attrs['Alpha'] = np.diagonal(self.A_alpha)[0]
-        flux_out_2.attrs['Sa'] = np.diagonal(self.Sa_alpha)[0]
+        # flux_out_2.attrs['Alpha'] = np.diagonal(self.A_alpha)[0]
+        # flux_out_2.attrs['Sa'] = np.diagonal(self.Sa_alpha)[0]
 
         # Unit attributes
         flux_out_2['flux_prior'].attrs['units'] = 'mol/m2/s'
