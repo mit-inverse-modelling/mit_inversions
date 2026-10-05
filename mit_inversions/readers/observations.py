@@ -1,6 +1,6 @@
 # observations.py
 # Created: 16 March 2026
-# Author: Luke Western
+# Author: Luke Western, Eric Saboya
 # Copyright (c) 2026. All rights reserved.
 # License: MIT License
 # 
