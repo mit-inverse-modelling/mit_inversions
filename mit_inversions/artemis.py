@@ -301,11 +301,7 @@ def artemis_multitracer(data_dict_inputs: dict):
                                              alpha=alphaXflux_s1_bf,
                                              Sa=alphaSAXflux_s1_bf,
                                              )
-
-   for key in inversion_results.keys():
-      print(f"{key}: {inversion_results[key].shape}")
    
-   # sys.exit(1)
    # Post-processing of inversion results
    post_processing_setup = PostProcessingMultiTracer(start_date=data_dict_inputs['start_date'],
                                                      end_date=data_dict_inputs['end_date'],
@@ -320,7 +316,7 @@ def artemis_multitracer(data_dict_inputs: dict):
                                                      inverse_method=data_dict_inputs['inverse_method'],
                                                      output_dir=data_dict_inputs.get('output_dir', None),
                                                      outputname_id=data_dict_inputs.get('outputname_id', None),
-)
+                                                     )
 
    print("Computing mole fractions and country emissions...")
    mf_out = post_processing_setup.compute_molefractions()
