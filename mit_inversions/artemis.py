@@ -10,7 +10,7 @@
 #   It includes functions for forward simulation of atmospheric transport, 
 #   calculation of model error, and inference of surface fluxes.
 
-
+import sys
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -159,7 +159,6 @@ def artemis_multitracer(data_dict_inputs: dict):
       - G1 is the sensitivity matrix for gas 2 to source 1, 
       - A is the scaling factor relating the emissions of gas 1 and gas 2 from source 1.
    """
-   
    from mit_inversions.readers.observations import Observations
    from mit_inversions.readers.footprint_flux_reader import FootprintFlux
    from mit_inversions.simulations import data_merge
@@ -181,6 +180,7 @@ def artemis_multitracer(data_dict_inputs: dict):
                      ).get_observations()
 
    # Create correpsonding simulations 
+   # Gas 1
    (fp_flux_grid_1,
     mf_sim_1,
     flux_grid_1,
@@ -195,11 +195,7 @@ def artemis_multitracer(data_dict_inputs: dict):
                       flux=data_dict_inputs['flux_dict_1'],
                       base_data_dir=data_dict_inputs['base_data_dir'],
                       ).align_flux_footprint()
-
-   alpha_scalar = np.asarray(data_dict_inputs['alpha']).item()
-   for sector in data_dict_inputs['flux_dict_2'].keys():
-      if data_dict_inputs['flux_dict_2'][sector]['mode'] == 'auto_generation':
-         data_dict_inputs['flux_dict_2'][sector]['total_emissions_Gg'] = data_dict_inputs['flux_dict_1'][sector]['total_emissions_Gg'] * alpha_scalar
+   # Gas 2
    (fp_flux_grid_2,
     mf_sim_2,
     flux_grid_2,
@@ -215,9 +211,43 @@ def artemis_multitracer(data_dict_inputs: dict):
                       base_data_dir=data_dict_inputs['base_data_dir'],
                       ).align_flux_footprint()
 
+
+   # Scale factor matrix for gas 2
+   (fp_alpha_grid,
+    _mf_sim_alpha,
+    alpha_grid,
+    _fps_2,
+    ) = FootprintFlux(start_date=data_dict_inputs['start_date'],
+                      end_date=data_dict_inputs['end_date'],
+                      sites=data_dict_inputs['sites'],
+                      site_inlets=data_dict_inputs['footprints']['site_inlets'],
+                      lpdm=data_dict_inputs['footprints']['lpdm'],
+                      met_model=data_dict_inputs['footprints']['met_model'],
+                      species=data_dict_inputs['species2'],
+                      flux=data_dict_inputs['alpha_dict'],
+                      base_data_dir=data_dict_inputs['base_data_dir'],
+                      ).align_flux_footprint()
+
+   (fp_alphaSA_grid,
+    _mf_sim_alphaSA,
+    alphaSA_grid,
+    _fps_2,
+    ) = FootprintFlux(start_date=data_dict_inputs['start_date'],
+                      end_date=data_dict_inputs['end_date'],
+                      sites=data_dict_inputs['sites'],
+                      site_inlets=data_dict_inputs['footprints']['site_inlets'],
+                      lpdm=data_dict_inputs['footprints']['lpdm'],
+                      met_model=data_dict_inputs['footprints']['met_model'],
+                      species=data_dict_inputs['species2'],
+                      flux=data_dict_inputs['alpha_sa_dict'],
+                      base_data_dir=data_dict_inputs['base_data_dir'],
+                      ).align_flux_footprint()
+
+
    # Ensure each species data are internally aligned
    data_aligned_dict_gas1 = data_merge(y1, fp_flux_grid_1, mf_sim_1, fps_1)
    data_aligned_dict_gas2 = data_merge(y2, fp_flux_grid_2, mf_sim_2, fps_2)
+   # data_aligned_dict_alpha = data_merge(y2, fp_alpha_grid, mf_sim_2, fps_2)
 
    # Calculate model errors for each species
    model_data_gas1 = ModelError(data_aligned_dict_gas1, 
@@ -233,6 +263,23 @@ def artemis_multitracer(data_dict_inputs: dict):
    fp_sens_out_gas1 = inversion_grid_sensitivity(data_dict_inputs, model_data_gas1)
    basis_function_grid = xr.Dataset({'basis_function_grid': model_data_gas1[".basis_function_grid"]})
    fp_sens_out_gas2 = inversion_grid_sensitivity(data_dict_inputs, model_data_gas2, basis_function_ds=basis_function_grid)   
+
+   # Set up alpha grid for basis functions: produces the flux times alpha value for each BF when created
+   alpha_flux_sector_name = alpha_grid['flux'].flux_sector.values[0]
+   flux_g1s1_name = flux_grid_1['flux'].flux_sector.values[0]
+   target_grid = alpha_grid['flux'].sel(flux_sector=alpha_flux_sector_name) * flux_grid_1['flux'].sel(flux_sector=flux_g1s1_name)
+   alphaXflux_s1_bf = inversion_grid_sensitivity(data_dict_inputs, 
+                                                 model_data_gas2, 
+                                                 basis_function_ds=basis_function_grid, 
+                                                 target_grid=target_grid)
+   
+   # Set up alpha Sa grid for basis functions
+   alphaSA_flux_sector_name = alphaSA_grid['flux'].flux_sector.values[0]
+   target_grid = alphaSA_grid['flux'].sel(flux_sector=alphaSA_flux_sector_name) * flux_grid_1['flux'].sel(flux_sector=flux_g1s1_name)
+   alphaSAXflux_s1_bf = inversion_grid_sensitivity(data_dict_inputs, 
+                                                   model_data_gas2, 
+                                                   basis_function_ds=basis_function_grid, 
+                                                   target_grid=target_grid)
 
    # Calculate boundary conditions for each species
    gas1_data_dict_bc = BoundaryConditions(species=data_dict_inputs["species"],
@@ -250,8 +297,15 @@ def artemis_multitracer(data_dict_inputs: dict):
                                              gas1_data_dict_bc=gas1_data_dict_bc,
                                              gas2_data_dict_bc=gas2_data_dict_bc,
                                              flux_grid_1=flux_grid_1,
-                                             flux_grid_2=flux_grid_2)
+                                             flux_grid_2=flux_grid_2,
+                                             alpha=alphaXflux_s1_bf,
+                                             Sa=alphaSAXflux_s1_bf,
+                                             )
 
+   for key in inversion_results.keys():
+      print(f"{key}: {inversion_results[key].shape}")
+   
+   # sys.exit(1)
    # Post-processing of inversion results
    post_processing_setup = PostProcessingMultiTracer(start_date=data_dict_inputs['start_date'],
                                                      end_date=data_dict_inputs['end_date'],
@@ -263,7 +317,7 @@ def artemis_multitracer(data_dict_inputs: dict):
                                                      flux_grid_prior=flux_grid_1,
                                                      flux_grid_prior2=flux_grid_2,
                                                      atmospheric_transport_model=data_dict_inputs['footprints']['lpdm'],
-                                                     inverse_method=data_dict_inputs['inversion']['inverse_method'],
+                                                     inverse_method=data_dict_inputs['inverse_method'],
                                                      output_dir=data_dict_inputs.get('output_dir', None),
                                                      outputname_id=data_dict_inputs.get('outputname_id', None),
 )
