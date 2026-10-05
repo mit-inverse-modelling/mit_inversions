@@ -375,6 +375,7 @@ class FootprintFlux():
 
     def _load_auto_generated_flux(self, footprint_data: xr.Dataset, flux_sector: str = None) -> xr.Dataset:
         """Generate a flux prior directly on the footprint grid."""
+
         if flux_sector is None:
             flux_ds = generate_emissions_distribution(
                 total_Gg=self.flux["total_emissions_Gg"],
@@ -388,6 +389,8 @@ class FootprintFlux():
                 region=self.flux.get("region"),
                 region_portion=self.flux.get("region_portion", 1.0),
                 outside_method=self.flux.get("outside_method"),
+                equal_weight=self.flux.get("equal_weight", False),
+                scale_factor_matrix=self.flux.get("scale_factor_matrix", False)
             )
             return self._standardize_flux_dataset(flux_ds, "flux")
         else:
@@ -403,8 +406,9 @@ class FootprintFlux():
                 region=self.flux[flux_sector].get("region"),
                 region_portion=self.flux[flux_sector].get("region_portion", 1.0),
                 outside_method=self.flux[flux_sector].get("outside_method"),
+                equal_weight=self.flux[flux_sector].get("equal_weight", False),
+                scale_factor_matrix=self.flux[flux_sector].get("scale_factor_matrix", False)
             )
-
             return self._standardize_flux_dataset(flux_ds, "flux")
 
     def _load_customized_flux(self, flux_sector: str = None) -> xr.Dataset:
@@ -751,13 +755,16 @@ class FootprintFlux():
 
         flux_data = self.get_flux(fp_for_regridding)
         for flux_key in flux_data.keys():
-            iunit = flux_data[flux_key]["fluxes"].attrs['units']
-            for _coord in flux_data[flux_key]["fluxes"].coords:
-                flux_data[flux_key]["fluxes"][_coord].attrs.pop("units", None)
-            if "-" in iunit:
-                iunit = self.normalize_cf_units(iunit)
+            scale_factor_matrix = self.flux[flux_key].get("scale_factor_matrix", False)
 
-            flux_data[flux_key]["fluxes"] = flux_data[flux_key]["fluxes"].pint.quantify(ureg.parse_units(iunit)).pint.to("g / m^2 / s")
+            if scale_factor_matrix is False:
+                iunit = flux_data[flux_key]["fluxes"].attrs['units']
+                for _coord in flux_data[flux_key]["fluxes"].coords:
+                    flux_data[flux_key]["fluxes"][_coord].attrs.pop("units", None)
+                if "-" in iunit:
+                    iunit = self.normalize_cf_units(iunit)
+
+                flux_data[flux_key]["fluxes"] = flux_data[flux_key]["fluxes"].pint.quantify(ureg.parse_units(iunit)).pint.to("g / m^2 / s")
 
         # Regrid flux data to footprint grid
         regridded_fluxes = []
@@ -766,18 +773,24 @@ class FootprintFlux():
         for flux_key in flux_data.keys():
             if self._grids_match(flux_data[flux_key], fp_for_regridding):
                 regridded_flux = flux_data[flux_key]["fluxes"].values.copy()
-                area = grid_cell_area_m2(flux_data[flux_key]['lat'].values, flux_data[flux_key]['lon'].values)
-                regridded_flux = regridded_flux * area['area'].values
+                
+                if scale_factor_matrix is False:
+                    area = grid_cell_area_m2(flux_data[flux_key]['lat'].values, flux_data[flux_key]['lon'].values)
+                    regridded_flux = regridded_flux * area['area'].values
 
             else:
-                area = grid_cell_area_m2(flux_data[flux_key]['lat'].values, flux_data[flux_key]['lon'].values)
-                flux_data[flux_key]["fluxes"].values = flux_data[flux_key]["fluxes"].values * area['area'].values
-                regridded_flux, _ = self.regrid_flux_to_footprint(flux_data[flux_key], fp_for_regridding)
+                if scale_factor_matrix is False:
+                    area = grid_cell_area_m2(flux_data[flux_key]['lat'].values, flux_data[flux_key]['lon'].values)
+                    flux_data[flux_key]["fluxes"].values = flux_data[flux_key]["fluxes"].values * area['area'].values
+                    regridded_flux, _ = self.regrid_flux_to_footprint(flux_data[flux_key], fp_for_regridding)
+                else:
+                    regridded_flux, _ = self.regrid_flux_to_footprint(flux_data[flux_key], fp_for_regridding)
 
             area_regridded = grid_cell_area_m2(fp_for_regridding['latitude'].values, fp_for_regridding['longitude'].values)
 
             # Convert from g/m2/s to mol/m2/s
-            regridded_flux = (regridded_flux / self.species_molar_mass()) / area_regridded['area'].values
+            if scale_factor_matrix is False:
+                regridded_flux = (regridded_flux / self.species_molar_mass()) / area_regridded['area'].values
 
             ds_flux = xr.Dataset({"flux": (["latitude", "longitude"], regridded_flux)},
                                  coords={"latitude": fp_for_regridding['latitude'].values,
