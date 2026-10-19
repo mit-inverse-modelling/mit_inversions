@@ -27,7 +27,8 @@ from mit_inversions.readers.masks import get_countries_for_grid
 
 def inversion_grid_sensitivity(data_dict_inputs: dict, 
                                model_data_dict: dict,
-                               basis_function_ds: xr.Dataset = None
+                               basis_function_ds: xr.Dataset = None,
+                               target_grid: xr.Dataset = None
                                )->dict:
     """
     Calculate the H values on the inversion grid for each measurement site based on 
@@ -38,6 +39,10 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
         A dictionary containing all input data for ARTEMIS, including basis function parameters.
     - model_data_dict (dict): 
         A dictionary containing the results of the forward simulation and model error calculations.
+    - basis_function_ds (xr.Dataset): 
+        A dataset containing the basis function grid.
+    - target_grid (xr.Dataset): 
+        A dataset containing the target grid.
 
     Returns:
     - model_data_dict (dict): 
@@ -52,16 +57,17 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
         country_masking = True
 
     # Calculate mean footprint-flux grid for basis function calculation
-    for i, site in enumerate(model_data_dict.keys()):
-        if i == 0:
-            # fp_flux_grid_mean = model_data_dict[site]['fp_flux_grid'].mean(dim=('flux_sector', 'time'))
-            fp_flux_grid_mean = model_data_dict[site]['fp_flux_grid'].sum(dim=('flux_sector')).mean(dim='time')
-        else:
-            # fp_flux_grid_mean += model_data_dict[site]['fp_flux_grid'].mean(dim=('flux_sector', 'time'))
-            fp_flux_grid_mean += model_data_dict[site]['fp_flux_grid'].sum(dim=('flux_sector')).mean(dim='time')
+    if target_grid is None:
+        for i, site in enumerate(model_data_dict.keys()):
+            if i == 0:
+                fp_flux_grid_mean = model_data_dict[site]['fp_flux_grid'].sum(dim=('flux_sector')).mean(dim='time')
+            else:
+                fp_flux_grid_mean += model_data_dict[site]['fp_flux_grid'].sum(dim=('flux_sector')).mean(dim='time')
 
-    # Mean footprint-flux grid across all sites for basis function calculation
-    fp_flux_grid_mean /= len(model_data_dict.keys())
+        # Mean footprint-flux grid across all sites for basis function calculation
+        fp_flux_grid_mean /= len(model_data_dict.keys())
+    else:
+        fp_flux_grid_mean = target_grid
 
 
     if basis_function_ds is None:
@@ -148,25 +154,40 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
     for i in range(nbasis_functions):
         basis_function_matrix[:, i] = (bf_grid_stack.values == i).astype(int) * 1
 
-    for site in model_data_dict.keys():
-        for si, flux_sector in enumerate(model_data_dict[site]['flux_sector'].data):
-            H_all_si = model_data_dict[site]["fp_flux_grid"].sel(flux_sector=flux_sector).stack(space=('latitude', 'longitude')).data
+    if target_grid is None:
+        for site in model_data_dict.keys():
+            for si, flux_sector in enumerate(model_data_dict[site]['flux_sector'].data):
+                H_all_si = model_data_dict[site]["fp_flux_grid"].sel(flux_sector=flux_sector).stack(space=('latitude', 'longitude')).data
 
-            H_grid_si = H_all_si @ basis_function_matrix
+                H_grid_si = H_all_si @ basis_function_matrix
 
-            region_name = [flux_sector + "-" + str(reg) for reg in range(nbasis_functions)]
+                region_name = [flux_sector + "-" + str(reg) for reg in range(nbasis_functions)]
 
-            coords = {"region": (["region"], region_name), "time": (["time"], model_data_dict[site].coords["time"].data)}
+                coords = {"region": (["region"], region_name), "time": (["time"], model_data_dict[site].coords["time"].data)}
+                dimensions = ["time", "region"]
+                sensitivity = xr.DataArray(H_grid_si, coords=coords, dims=dimensions)
+
+                if si == 0:
+                    concat_sensitivity = sensitivity
+                else:
+                    concat_sensitivity = xr.concat([concat_sensitivity, sensitivity], dim="region")
+                
+            model_data_dict[site]['H'] = concat_sensitivity
+        
+        model_data_dict[".basis_function_grid"] = ds_basis_function['basis_function_grid']
+        return model_data_dict
+    
+    else:
+        H_all_si = target_grid.stack(space=('latitude', 'longitude')).data
+        H_grid_si = H_all_si @ basis_function_matrix
+        region_name = [str(reg) for reg in range(nbasis_functions)]
+        try:
+            coords = {"region": (["region"], region_name), "time": (["time"], target_grid.coords["time"].data)}
             dimensions = ["time", "region"]
             sensitivity = xr.DataArray(H_grid_si, coords=coords, dims=dimensions)
-
-            if si == 0:
-                concat_sensitivity = sensitivity
-            else:
-                concat_sensitivity = xr.concat([concat_sensitivity, sensitivity], dim="region")
-            
-        model_data_dict[site]['H'] = concat_sensitivity
+        except:
+            coords = {"region": (["region"], region_name)}
+            dimensions = ["region"]
+            sensitivity = xr.DataArray(H_grid_si, coords=coords, dims=dimensions)
     
-    model_data_dict[".basis_function_grid"] = ds_basis_function['basis_function_grid']
-    
-    return model_data_dict
+        return sensitivity

@@ -116,7 +116,7 @@ def _default_proxy_path(base_data_dir, relative_path):
     return Path(get_data_path(data_path / relative_path))
 
 
-def _compute_weights(method, lats, lons, area_m2, nightlights_path=None, population_path=None, base_data_dir=None):
+def _compute_weights(method, lats, lons, area_m2, nightlights_path=None, population_path=None, base_data_dir=None, equal_weight=False):
     """Compute normalized distribution weights for the requested method."""
     method = method.strip().lower()
     if method not in ("nightlights", "population", "uniform", "uniform_over_land"):
@@ -131,6 +131,10 @@ def _compute_weights(method, lats, lons, area_m2, nightlights_path=None, populat
     elif method == "uniform_over_land":
         codes = get_countries_for_grid(lons, lats, base_data_dir=base_data_dir).values
         weights = np.where(codes != "OCN", area_km2, 0.0)
+
+        # cmask = xr.open_dataset('/home/esaboya/country_masks/country_mask_EASTASIA_v2026.nc')
+        # codes = cmask['country'].values
+        # weights = np.where(codes != 0, area_km2, 0.0)
     
     elif method == "nightlights":
         path = Path(nightlights_path) if nightlights_path else _default_proxy_path(base_data_dir, "masks/reference/nightlights_0.1deg.nc")
@@ -148,13 +152,20 @@ def _compute_weights(method, lats, lons, area_m2, nightlights_path=None, populat
                 f"Population proxy file not found: {path}. Generate proxy file first."
             )
         proxy = _load_proxy(path, "population_density", lats, lons)
-
         weights = np.where(np.isfinite(proxy) & (proxy >= 0), proxy, 0.0).astype(float) * area_km2
+
+        # cmask = xr.open_dataset('/home/esaboya/country_masks/country_mask_EASTASIA_v2026.nc')
+        # codes = cmask['country'].values
+        # weights = np.where((proxy >= 0) & (codes != 0), proxy, 0.0).astype(float) * area_km2
 
     weight_sum = float(np.nansum(weights))
     if weight_sum <= 0:
         raise ValueError(f"{method} produced no positive weights on the selected grid.")
-    return weights / weight_sum
+
+    if equal_weight is True:
+        return np.nan_to_num(weights / weights)
+    else:
+        return weights / weight_sum
 
 
 def generate_emissions_distribution(
@@ -163,6 +174,7 @@ def generate_emissions_distribution(
     year=None,
     lats=None,
     lons=None,
+    equal_weight=False,
     nightlights_path=None,
     population_path=None,
     base_data_dir=None,
@@ -170,6 +182,7 @@ def generate_emissions_distribution(
     region_portion=1.0,
     outside_method=None,
     out_path=None,
+    scale_factor_matrix=False,
 ):
     """
     Generate an emissions field on the given grid that sums to total_Gg.
@@ -189,6 +202,8 @@ def generate_emissions_distribution(
     lons : array-like, optional
         1D longitude array (cell centres, degrees_east).
         Defaults to global 0.1° grid (TARGET_LON).
+    equal_weight : bool, optional
+        If True, all grid cells with positive proxy values are assigned equal weight.
     nightlights_path : str or Path, optional
         Path to night lights NetCDF (global 0.1°).
         Default: data_path / "masks/reference/nightlights_0.1deg.nc"
@@ -242,6 +257,7 @@ def generate_emissions_distribution(
             nightlights_path=nightlights_path,
             population_path=population_path,
             base_data_dir=base_data_dir,
+            equal_weight=equal_weight,
         )
     else:
         if not isinstance(region, dict):
@@ -263,6 +279,7 @@ def generate_emissions_distribution(
             nightlights_path=nightlights_path,
             population_path=population_path,
             base_data_dir=base_data_dir,
+            equal_weight=equal_weight,
         )
         inside_weights = np.where(region_mask, inside_weights, 0.0)
         inside_sum = float(np.nansum(inside_weights))
@@ -283,6 +300,7 @@ def generate_emissions_distribution(
                 nightlights_path=nightlights_path,
                 population_path=population_path,
                 base_data_dir=base_data_dir,
+                equal_weight=equal_weight,
             )
             outside_weights = np.where(outside_mask, outside_weights, 0.0)
             outside_sum = float(np.nansum(outside_weights))
@@ -295,7 +313,11 @@ def generate_emissions_distribution(
     total_g = float(total_Gg * GG_TO_G)
     spy = seconds_per_year(year)
     # flux = (total_g * weights / (area_m2 * spy)).astype(np.float32)
-    flux =  ((total_g * weights) / area_m2 / spy).astype(np.float32)
+
+    if scale_factor_matrix is False:
+        flux =  ((total_g * weights) / area_m2 / spy).astype(np.float32)
+    elif scale_factor_matrix is True:
+        flux =  (total_g * weights).astype(np.float32)
 
     ds = xr.Dataset(
         {
