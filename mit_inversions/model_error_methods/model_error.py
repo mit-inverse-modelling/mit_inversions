@@ -81,23 +81,28 @@ class ModelError():
 
         # Pollution event error
         #   Defined as the mean ratio of observation-to-simulation pollution events
-        #   at times of 3-sigma observation pollution events. This ratio is multipled
+        #   at times of 2-sigma observation pollution events. This ratio is multipled
         #   with the simulations of added concentrations. 
         #   Uncertainties scale with the size of the pollution event and assumed Gaussian.
 
         c_bg = np.mean(bg_mu)
         delta_obs = obs - c_bg
-        delta_sim = sim.mean(dim="flux_sector")
+        delta_sim = sim.sum(dim="flux_sector")
         
         # Mask of where 3-sigma pollution events occur in the array
         # sig3mask = np.where(delta_obs>=np.std(delta_obs)*3)
         # Mask of where 2-sigma pollution events occur in the array (for more data points)
-        sig3mask = np.intersect1d(np.where(delta_obs <= np.std(delta_obs) * 2), np.where(delta_obs >= np.std(delta_obs) * 1))
+        sig3mask = np.intersect1d(np.where(delta_obs <= np.std(delta_obs) * 4), np.where(delta_obs >= np.std(delta_obs) * 2))
 
         # Ratio of observation-to-simulated 3-sigma pollution events
         r_array = delta_obs.values[sig3mask]/delta_sim.values[sig3mask]
         r_filtered = r_array[np.isfinite(r_array)]
-        r = np.nanmean(r_filtered)
+        r = np.nanmedian(r_filtered)
+        r_std = np.nanstd(r_filtered)
+
+        print(f"Mean ratio is {r:.2f} with std of {r_std:.2f}".format(r=r, r_std=r_std))
+        print(f"Median ratio is {np.nanmedian(r_filtered):.2f}".format(r=np.nanmedian(r_filtered)))
+        print(f"Background error is {sigma_bg:.4f}".format(sigma_bg=sigma_bg))
 
         # Model error at each data point
         model_error = np.sqrt((r * delta_sim)**2 + sigma_bg**2)
