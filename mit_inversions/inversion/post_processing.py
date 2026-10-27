@@ -911,7 +911,7 @@ class PostProcessingMultiTracer:
         # GAS 1 XARRAY DATASET
         ds_species1_out = xr.Dataset({
             "time": (["index"], self.time),
-            "mf": (["index"], mf_g1_obs),
+            "mf": (["index"], mf_g1_obs.flatten()),
             "mf_err": (["index"], mf_g1_obs_err),
             "mf_prior": (["index"], mf_g1_prior.flatten()),
             "mf_priorBC": (["index"], mf_g1_priorBC.flatten()),
