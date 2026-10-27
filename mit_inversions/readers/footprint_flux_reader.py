@@ -763,7 +763,10 @@ class FootprintFlux():
                 if "-" in iunit:
                     iunit = self.normalize_cf_units(iunit)
 
-                flux_data[flux_key]["fluxes"] = flux_data[flux_key]["fluxes"].pint.quantify(ureg.parse_units(iunit)).pint.to("g / m^2 / s")
+                if iunit in ['none', 'None']:
+                    continue
+                else:
+                    flux_data[flux_key]["fluxes"] = flux_data[flux_key]["fluxes"].pint.quantify(ureg.parse_units(iunit)).pint.to("g / m^2 / s")
 
         # Regrid flux data to footprint grid
         regridded_fluxes = []
