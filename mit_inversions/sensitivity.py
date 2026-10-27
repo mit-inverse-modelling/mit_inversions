@@ -58,14 +58,17 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
 
     # Calculate mean footprint-flux grid for basis function calculation
     if target_grid is None:
+        count = 0
         for i, site in enumerate(model_data_dict.keys()):
-            if i == 0:
-                fp_flux_grid_mean = model_data_dict[site]['fp_flux_grid'].sum(dim=('flux_sector')).mean(dim='time')
-            else:
-                fp_flux_grid_mean += model_data_dict[site]['fp_flux_grid'].sum(dim=('flux_sector')).mean(dim='time')
+            if "." not in site:
+                count+=1
+                if i == 0:
+                    fp_flux_grid_mean = model_data_dict[site]['fp_flux_grid'].sum(dim=('flux_sector')).mean(dim='time')
+                else:
+                    fp_flux_grid_mean += model_data_dict[site]['fp_flux_grid'].sum(dim=('flux_sector')).mean(dim='time')
 
         # Mean footprint-flux grid across all sites for basis function calculation
-        fp_flux_grid_mean /= len(model_data_dict.keys())
+        fp_flux_grid_mean /= count
     else:
         fp_flux_grid_mean = target_grid
 
@@ -104,6 +107,10 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
                                             ).run()
 
         # Create xarray dataset for basis function grid
+        sites = [site for site in model_data_dict.keys() if "." not in site]
+        site = sites[0]
+        print(site)
+
         ds_basis_function = xr.Dataset(
             {"basis_function_grid": (["latitude", "longitude"], basis_function_grid)},
             coords={"latitude": model_data_dict[site]['fp_flux_grid'].latitude,
@@ -119,12 +126,18 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
     if country_masking:
         print("Applying country masking to basis function grid ...")
         # Retrieve country mask for model domain 
-        country_grid = get_countries_for_grid(
-            ds_basis_function.longitude.values,
-            ds_basis_function.latitude.values,
-            base_data_dir=data_dict_inputs.get("base_data_dir"),
-        )
-        
+        # country_grid_load = get_countries_for_grid(
+        #     ds_basis_function.longitude.values,
+        #     ds_basis_function.latitude.values,
+        #     base_data_dir=data_dict_inputs.get("base_data_dir"),
+        # )
+
+        country_grid_load = xr.open_dataset('/home/esaboya/country_masks/country_mask_EASTASIA_v2026.nc')
+        try:
+            country_grid = country_grid_load.rename({"lon": "longitude", "lat": "latitude"})
+        except:
+            country_grid = country_grid_load.rename({"longitude": "longitude", "latitude": "latitude"})
+
         # Stack basis function and country mask grids 
         country_stack = country_grid.stack(space=('latitude', 'longitude')).values
         bf_grid_stack = ds_basis_function['basis_function_grid'].stack(space=('latitude', 'longitude')).values
@@ -156,6 +169,9 @@ def inversion_grid_sensitivity(data_dict_inputs: dict,
 
     if target_grid is None:
         for site in model_data_dict.keys():
+            if "." in site:
+                continue
+
             for si, flux_sector in enumerate(model_data_dict[site]['flux_sector'].data):
                 H_all_si = model_data_dict[site]["fp_flux_grid"].sel(flux_sector=flux_sector).stack(space=('latitude', 'longitude')).data
 
