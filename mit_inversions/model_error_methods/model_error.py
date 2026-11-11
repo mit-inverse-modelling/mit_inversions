@@ -150,7 +150,7 @@ class ModelError():
         """
         return np.zeros(obs.shape, dtype=float)
 
-    def run(self, normalize: bool = False):
+    def run(self):
         """
         Wrapper function to calculate the model error using the selected method.
         """
