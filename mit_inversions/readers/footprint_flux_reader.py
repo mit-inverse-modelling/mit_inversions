@@ -588,7 +588,7 @@ class FootprintFlux():
                         print(f"Warning: Multiple files found for {site} ({inlet}) in {yyyymm}. Using {fp_file}")
                     
                     try:
-                        fp_data = xr.open_dataset(fp_file)
+                        fp_data = xr.open_dataset(fp_file).load()
                         site_fps.append(fp_data)
                         print(f"Successfully loaded footprint data for {site} ({yyyymm}) from {fp_file}")
                     except Exception as e:
@@ -680,9 +680,9 @@ class FootprintFlux():
         """
         # Initialize the UnitRegistry
         ureg = pint.UnitRegistry(force_ndarray=True)
-        ureg.define('ppm = 1e-6 * mole / mole')
-        ureg.define('ppb = 1e-9 * mole / mole')
-        ureg.define('ppt = 1e-12 * mole / mole')
+        ureg.define('ppm = 1e6 * mole / mole')
+        ureg.define('ppb = 1e9 * mole / mole')
+        ureg.define('ppt = 1e12 * mole / mole')
         ureg.define('m2 = m * m = meter ** 2')
 
         return ureg
@@ -783,26 +783,8 @@ class FootprintFlux():
         
         # Combine fluxes and footprints into a single dataset 
         print("Combining flux and footprint data ...")
-        fpXflux = []
-        sites_dim = []
-        fp_out = []
-
-        for site in fps_dict.keys():
-            fp_site = fps_dict[site]['srr']
-            fp_out.append(fps_dict[site])
-
-            site_fp_x_flux = []
-
-            for flux_key in flux_data.keys():
-                flux_i = self.fluxes_regridded.sel(flux_sector=flux_key)
-                site_fp_x_flux.append(fp_site * flux_i['flux'])
-            
-            site_fp_x_flux_concat = xr.concat(site_fp_x_flux, dim="flux_sector").assign_coords(flux_sector=regridded_fluxes_dim)
-            fpXflux.append(site_fp_x_flux_concat)
-            sites_dim.append(site)
-        
-        self.fpXflux = xr.concat(fpXflux, dim="site").assign_coords(site=sites_dim)
+        self.fpXflux = xr.concat([fps_dict[site]['srr'] for site in fps_dict.keys()], dim="site").assign_coords(site=list(fps_dict.keys())).expand_dims({"flux_sector": regridded_fluxes_dim}) * self.fluxes_regridded.flux.expand_dims({"site": list(fps_dict.keys())})
         self.mf_sim = self.fpXflux.sum(dim=["latitude", "longitude"])
-        self.fps = xr.concat(fp_out, dim="site").assign_coords(site=sites_dim)
+        self.fps = xr.concat([fps_dict[site] for site in fps_dict.keys()], dim="site").assign_coords(site=list(fps_dict.keys()))
 
         return self.fpXflux, self.mf_sim, self.fluxes_regridded, self.fps

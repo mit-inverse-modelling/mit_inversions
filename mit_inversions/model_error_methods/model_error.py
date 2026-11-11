@@ -12,8 +12,8 @@
 #   interface for calculating model error using different methods, allowing users to select 
 #   the most appropriate approach for their specific application
 
-import numpy as np 
-import xarray as xr 
+import numpy as np
+import xarray as xr
 
 class ModelError():
     """
@@ -38,8 +38,10 @@ class ModelError():
 
         expected_methods = [
             "pollution_event_error",
+            "relative_residual_error",
+            "rmse",
             "simple",
-            'zero',
+            "zero"
         ]
 
         if model_error_method in expected_methods:
@@ -104,6 +106,22 @@ class ModelError():
 
         return model_error
     
+    def relative_residual_error(self, obs, sim):
+        """
+        Adapted from Palmer et al. (2003) as implemented in Heald et al. (2004) doi:10.1029/2004JD005185
+
+        Parameters:
+        - obs (xarray.DataArray):
+            Observed concentrations.
+        - sim (xarray.DataArray):
+            Simulated concentrations from the model.
+        """
+        bg = np.nanpercentile(obs.values, 2.5)
+        b = np.nanmean(sim.sum(dim="flux_sector").values - (obs.values - bg))
+        eps = sim.sum(dim="flux_sector").values - (obs.values - bg) - b
+        rrsd = np.nanstd(eps) / np.nanmean(obs.values)
+        return (rrsd * obs.values) # return as observational error std. dev., later converted to variance.
+    
     def simple_model_error(self, obs, sim):
         """
         Calculate a simple model error as the mean absolute observation-simulation residual over the period.
@@ -145,6 +163,8 @@ class ModelError():
             # Calculate model error
             if self.model_method == "pollution_event_error":
                 model_error = self.pollution_event_minmodel_error(obs, sim)
+            elif self.model_method == "relative_residual_error":
+                model_error = self.relative_residual_error(obs, sim)
             elif self.model_method == "simple":
                 model_error = self.simple_model_error(obs, sim)
             elif self.model_method == "zero":
@@ -153,3 +173,4 @@ class ModelError():
             self.model_data_dict[site]['mf_model_error'] = xr.DataArray(model_error, coords=obs.coords)
         
         return self.model_data_dict
+    
