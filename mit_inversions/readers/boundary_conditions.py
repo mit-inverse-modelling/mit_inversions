@@ -168,13 +168,20 @@ class BoundaryConditions():
 
         for key, bc_ds in bc_dict.items():
             if frequency == "monthly":
-                period_labels = pd.DatetimeIndex(bc_ds.time.values).to_period("M").astype(str)
+                period_labels = pd.DatetimeIndex(bc_ds.time.values).to_period("M")
             elif frequency == "annual":
-                period_labels = pd.DatetimeIndex(bc_ds.time.values).to_period("Y").astype(str)
+                period_labels = pd.DatetimeIndex(bc_ds.time.values).to_period("Y")
             else:
                 raise ValueError(f"Unsupported frequency: {frequency}")
 
-            unique_periods = pd.Index(period_labels).unique().tolist()
+            # unique_periods = [f"{np.unique(bc_ds.time.dt.year).item()}-{month:02n}" for month in np.arange(1,13)] if frequency=="monthly" else [f"{year}" for year in np.unique(bc_ds.time.dt.year).item()]
+            unique_periods = pd.date_range(
+                start=period_labels.dt.year,
+                end=period_labels.dt.year+pd.Timedelta("12M"),
+                freq="M" if frequency == "monthly" else "Y",
+            )
+            period_labels = period_labels.astype(str)
+            unique_periods = unique_periods.astype(str).tolist()
             n_time = bc_ds.sizes["time"]
             n_periods = len(unique_periods)
             n_cols = n_periods * 4

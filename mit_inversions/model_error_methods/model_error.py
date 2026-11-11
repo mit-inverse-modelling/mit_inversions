@@ -12,8 +12,8 @@
 #   interface for calculating model error using different methods, allowing users to select 
 #   the most appropriate approach for their specific application
 
-import numpy as np 
-import xarray as xr 
+import numpy as np
+import xarray as xr
 
 class ModelError():
     """
@@ -39,6 +39,7 @@ class ModelError():
         expected_methods = [
             "pollution_event_error",
             "relative_residual_error",
+            "rmse",
             "simple",
             "zero"
         ]
@@ -115,7 +116,7 @@ class ModelError():
         - sim (xarray.DataArray):
             Simulated concentrations from the model.
         """
-        bg = np.nanpercentile(obs.values, 10)
+        bg = np.nanpercentile(obs.values, 2.5)
         b = np.nanmean(sim.sum(dim="flux_sector").values - (obs.values - bg))
         eps = sim.sum(dim="flux_sector").values - (obs.values - bg) - b
         rrsd = np.nanstd(eps) / np.nanmean(obs.values)
@@ -149,7 +150,7 @@ class ModelError():
         """
         return np.zeros(obs.shape, dtype=float)
 
-    def run(self):
+    def run(self, normalize: bool = False):
         """
         Wrapper function to calculate the model error using the selected method.
         """
@@ -172,3 +173,4 @@ class ModelError():
             self.model_data_dict[site]['mf_model_error'] = xr.DataArray(model_error, coords=obs.coords)
         
         return self.model_data_dict
+    

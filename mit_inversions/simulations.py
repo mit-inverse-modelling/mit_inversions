@@ -237,8 +237,9 @@ def forward_simulation(data_dict: dict)->dict:
         filter_methods = data_dict['observations']['data_filters']
         if not isinstance(filter_methods, list):
             filter_methods = [filter_methods]
-        data_aligned_dict = DataFiltering(dataset=data_aligned_dict, 
-                                          filters=filter_methods).run()
+        for filter in filter_methods:
+            data_aligned_dict = DataFiltering(dataset=data_aligned_dict, 
+                                            filters=filter).run()
 
     # Average data into specified bins
     average = data_dict['observations']['average']
@@ -246,10 +247,10 @@ def forward_simulation(data_dict: dict)->dict:
         average = average.lower()
         data_ave_dict = {}
         for site in data_aligned_dict.keys():
-            data_temp = data_aligned_dict[site].resample({"time": average}).pad()
+            data_temp = data_aligned_dict[site].resample({"time": average}).mean(dim="time", skipna=True)
 
             if len(data_temp["time"]) > len(data_aligned_dict[site]["time"]):
-                raise ValueError (f"WARNING! {average} averaging produces more time points that in initial observations. Use a greater averging period!")
+                raise ValueError (f"WARNING! {average} averaging produces more time points than in initial observations. Use a greater averging period!")
 
             data_ave_dict[site] = data_temp.dropna("time", subset=["mf", "mf_variability", "mf_repeatability"])
         

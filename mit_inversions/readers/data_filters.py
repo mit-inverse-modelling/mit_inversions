@@ -10,6 +10,7 @@
 #   ratios. The class can be initialized with a dataset and a list of filters to apply, and it includes 
 #   a method to run the specified filters on the dataset.
 
+import os
 import json
 import numpy as np
 import pandas as pd
@@ -46,15 +47,15 @@ class DataFiltering():
             Start hour to filter data from.
             Defaults to 11
         - end_hour (int):
-            End hour to filter data too (inclusive).
+            End hour to filter data to (inclusive).
             Defaults to 15
         """
         # Observations data dict
         self.data = dataset
 
         # Data filtering
-        if type(filters) is str:
-            filters = list(filters)
+        if not isinstance(filters, list):
+            filters = [filters]
         self.filters = filters
 
         # Keep missing data
@@ -87,8 +88,9 @@ class DataFiltering():
         - site (str):
             Atmospheric measurement site ID
         """
+        repo_path = get_repo_parent_path()
         # Load site data json file 
-        with open("../data/site_data.json", "r") as f:
+        with open(os.path.join(repo_path,"mit_inversions","data","site_data.json"), "r") as f:
             site_data = json.load(f)
         
         site_lon = site_data[site][list(site_data[site].keys())[0]].get("longitude")
@@ -160,7 +162,7 @@ class DataFiltering():
         """
         repo_path = get_repo_parent_path()
         # Load site data json file 
-        with open(repo_path / "mit_inversions"/ "data" / "site_data.json", "r") as f:
+        with open(os.path.join(repo_path,"mit_inversions","data","site_data.json"), "r") as f:
             site_data = json.load(f)
         
         site_lon = site_data[site][list(site_data[site].keys())[0]].get("longitude")

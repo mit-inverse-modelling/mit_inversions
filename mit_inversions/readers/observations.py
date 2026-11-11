@@ -96,9 +96,9 @@ class Observations():
         """
         # Initialize the UnitRegistry
         ureg = pint.UnitRegistry(force_ndarray=True)
-        ureg.define('ppm = 1e-6 * mole / mole')
-        ureg.define('ppb = 1e-9 * mole / mole')
-        ureg.define('ppt = 1e-12 * mole / mole')
+        ureg.define('ppm = 1e6 * mole / mole')
+        ureg.define('ppb = 1e9 * mole / mole')
+        ureg.define('ppt = 1e12 * mole / mole')
         ureg.define('m2 = m * m = meter ** 2')
         return ureg
 
