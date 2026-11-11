@@ -765,18 +765,11 @@ class FootprintFlux():
         for flux_key in flux_data.keys():
             if self._grids_match(flux_data[flux_key], fp_for_regridding):
                 regridded_flux = flux_data[flux_key]["fluxes"].values.copy()
-                area = grid_cell_area_m2(flux_data[flux_key]['lat'].values, flux_data[flux_key]['lon'].values)
-                regridded_flux = regridded_flux * area['area'].values
-
             else:
-                area = grid_cell_area_m2(flux_data[flux_key]['lat'].values, flux_data[flux_key]['lon'].values)
-                flux_data[flux_key]["fluxes"].values = flux_data[flux_key]["fluxes"].values * area['area'].values
                 regridded_flux, _ = self.regrid_flux_to_footprint(flux_data[flux_key], fp_for_regridding)
 
-            area_regridded = grid_cell_area_m2(fp_for_regridding['latitude'].values, fp_for_regridding['longitude'].values)
-
             # Convert from g/m2/s to mol/m2/s
-            regridded_flux = (regridded_flux / self.species_molar_mass()) / area_regridded['area'].values
+            regridded_flux = (regridded_flux / self.species_molar_mass())
 
             ds_flux = xr.Dataset({"flux": (["latitude", "longitude"], regridded_flux)},
                                  coords={"latitude": fp_for_regridding['latitude'].values,
