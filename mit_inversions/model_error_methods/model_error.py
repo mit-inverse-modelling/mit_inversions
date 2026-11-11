@@ -108,7 +108,7 @@ class ModelError():
     
     def relative_residual_error(self, obs, sim):
         """
-        Calculate the relative residual error of Palmer et al. (2003), doi:10.1029/2004JD005185
+        Adapted from Palmer et al. (2003) as implemented in Heald et al. (2004) doi:10.1029/2004JD005185
 
         Parameters:
         - obs (xarray.DataArray):
